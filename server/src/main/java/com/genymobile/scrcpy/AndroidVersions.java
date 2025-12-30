@@ -27,6 +27,8 @@ public final class AndroidVersions {
     public static final int API_32_ANDROID_12L = Build.VERSION_CODES.S_V2;
     public static final int API_33_ANDROID_13 = Build.VERSION_CODES.TIRAMISU;
     public static final int API_34_ANDROID_14 = Build.VERSION_CODES.UPSIDE_DOWN_CAKE;
-    public static final int API_35_ANDROID_15 = Build.VERSION_CODES.VANILLA_ICE_CREAM;
+    // compileSdk 34 환경에서는 VANILLA_ICE_CREAM 상수가 없으므로 리터럴을 사용한다.
+    // TargetApi 등에 사용되는 값이므로 상수 표현식만 만족하면 된다.
+    public static final int API_35_ANDROID_15 = 35;
 
 }

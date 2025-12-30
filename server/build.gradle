@@ -2,11 +2,11 @@ apply plugin: 'com.android.application'
 
 android {
     namespace = 'com.genymobile.scrcpy'
-    compileSdk 36
+    compileSdk 34
     defaultConfig {
         applicationId = "com.genymobile.scrcpy"
         minSdkVersion 21
-        targetSdkVersion 36
+        targetSdkVersion 34
         versionCode 30304
         versionName "3.3.4"
         testInstrumentationRunner = "android.support.test.runner.AndroidJUnitRunner"
