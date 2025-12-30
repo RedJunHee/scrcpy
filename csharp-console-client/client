@@ -1,0 +1,449 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Net.Sockets;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace ScrcpyConsoleControl
+{
+    internal static class Program
+    {
+        // =========================
+        // CONTROL TYPE NUMBERS (from your enum sc_control_msg_type, 0-based)
+        // =========================
+        private static readonly byte T_INJECT_TOUCH_EVENT = 2; // INJECT_TOUCH_EVENT
+        private static readonly byte T_GET_CLIPBOARD = 8; // GET_CLIPBOARD
+        private static readonly byte T_SET_CLIPBOARD = 9; // SET_CLIPBOARD
+
+        // =========================
+        // DEVICE->PC TYPE NUMBERS (from your enum sc_device_msg_type, 0-based)
+        // =========================
+        private static readonly byte T_DEV_CLIPBOARD = 0; // DEVICE_MSG_TYPE_CLIPBOARD
+        private static readonly byte T_DEV_ACK_CLIPBOARD = 1; // DEVICE_MSG_TYPE_ACK_CLIPBOARD
+        private static readonly byte T_DEV_UHID_OUTPUT = 2; // DEVICE_MSG_TYPE_UHID_OUTPUT (optional)
+
+        // Device msg framing limits (from header)
+        private const int DEVICE_MSG_MAX_SIZE = 1 << 18; // 256k
+        private const int DEVICE_MSG_TEXT_MAX_LENGTH = DEVICE_MSG_MAX_SIZE - 5; // type(1)+len(4)
+
+        // Android MotionEvent actions
+        private const byte AMOTION_EVENT_ACTION_DOWN = 0;
+        private const byte AMOTION_EVENT_ACTION_UP = 1;
+        private const byte AMOTION_EVENT_ACTION_MOVE = 2;
+
+        // pointer id (generic finger)
+        private const ulong SC_POINTER_ID_GENERIC_FINGER = 0xFFFFFFFFFFFFFFFFUL;
+
+        // clipboard copy_key
+        private const byte SC_COPY_KEY_NONE = 0;
+
+        private static ulong _clipboardSeq = 1;
+
+        public static async Task<int> Main(string[] args)
+        {
+            var opt = Options.Parse(args);
+
+            Console.WriteLine($"[connect] {opt.Host}:{opt.Port}");
+            Console.WriteLine($"[screen ] sw={opt.ScreenW} sh={opt.ScreenH}");
+            Console.WriteLine($"[types  ] control: touch={T_INJECT_TOUCH_EVENT} get_clip={T_GET_CLIPBOARD} set_clip={T_SET_CLIPBOARD} / device: clip={T_DEV_CLIPBOARD} ack={T_DEV_ACK_CLIPBOARD} uhid={T_DEV_UHID_OUTPUT}");
+            Console.WriteLine();
+
+            using var tcp = new TcpClient();
+            await tcp.ConnectAsync(opt.Host, opt.Port);
+            tcp.NoDelay = true;
+
+            using NetworkStream stream = tcp.GetStream();
+
+            using var cts = new CancellationTokenSource();
+            var readerTask = Task.Run(() => DeviceReaderLoop(stream, cts.Token), cts.Token);
+
+            Console.WriteLine("Commands:");
+            Console.WriteLine("  tap x y");
+            Console.WriteLine("  drag x1 y1 x2 y2 durationMs steps");
+            Console.WriteLine("  setclip pasteFlag text...");
+            Console.WriteLine("  getclip copyKey(0=none,1=copy,2=cut)");
+            Console.WriteLine("  exit");
+            Console.WriteLine();
+
+            try
+            {
+                while (true)
+                {
+                    Console.Write("> ");
+                    var line = Console.ReadLine();
+                    if (line == null) break;
+
+                    line = line.Trim();
+                    if (line.Length == 0) continue;
+
+                    var parts = SplitArgs(line);
+                    if (parts.Count == 0) continue;
+
+                    var cmd = parts[0].ToLowerInvariant();
+
+                    if (cmd is "exit" or "quit")
+                    {
+                        break;
+                    }
+                    else if (cmd == "tap")
+                    {
+                        if (parts.Count < 3) { Console.WriteLine("usage: tap x y"); continue; }
+                        int x = int.Parse(parts[1]);
+                        int y = int.Parse(parts[2]);
+
+                        await SendTouchAsync(stream, opt.ScreenW, opt.ScreenH, x, y, AMOTION_EVENT_ACTION_DOWN, SC_POINTER_ID_GENERIC_FINGER, 1.0f);
+                        await Task.Delay(30);
+                        await SendTouchAsync(stream, opt.ScreenW, opt.ScreenH, x, y, AMOTION_EVENT_ACTION_UP, SC_POINTER_ID_GENERIC_FINGER, 0.0f);
+
+                        Console.WriteLine("[ok] tap sent");
+                    }
+                    else if (cmd == "drag")
+                    {
+                        if (parts.Count < 7) { Console.WriteLine("usage: drag x1 y1 x2 y2 durationMs steps"); continue; }
+
+                        int x1 = int.Parse(parts[1]);
+                        int y1 = int.Parse(parts[2]);
+                        int x2 = int.Parse(parts[3]);
+                        int y2 = int.Parse(parts[4]);
+                        int durationMs = int.Parse(parts[5]);
+                        int steps = int.Parse(parts[6]);
+                        if (steps < 1) steps = 1;
+
+                        ulong pid = SC_POINTER_ID_GENERIC_FINGER;
+
+                        await SendTouchAsync(stream, opt.ScreenW, opt.ScreenH, x1, y1, AMOTION_EVENT_ACTION_DOWN, pid, 1.0f);
+
+                        int delayPer = durationMs / steps;
+                        for (int i = 1; i <= steps; i++)
+                        {
+                            int xi = Lerp(x1, x2, i, steps);
+                            int yi = Lerp(y1, y2, i, steps);
+                            await SendTouchAsync(stream, opt.ScreenW, opt.ScreenH, xi, yi, AMOTION_EVENT_ACTION_MOVE, pid, 1.0f);
+                            if (delayPer > 0) await Task.Delay(delayPer);
+                        }
+
+                        await SendTouchAsync(stream, opt.ScreenW, opt.ScreenH, x2, y2, AMOTION_EVENT_ACTION_UP, pid, 0.0f);
+
+                        Console.WriteLine("[ok] drag sent");
+                    }
+                    else if (cmd == "setclip")
+                    {
+                        if (parts.Count < 3) { Console.WriteLine("usage: setclip pasteFlag text..."); continue; }
+
+                        byte paste = byte.Parse(parts[1]) != 0 ? (byte)1 : (byte)0;
+                        string text = string.Join(" ", parts.GetRange(2, parts.Count - 2));
+
+                        ulong seq = _clipboardSeq++;
+                        await SendSetClipboardAsync(stream, seq, paste, text);
+
+                        Console.WriteLine($"[ok] setclip sent seq={seq} paste={paste} len={Encoding.UTF8.GetByteCount(text)}");
+                    }
+                    else if (cmd == "getclip")
+                    {
+                        byte copyKey = SC_COPY_KEY_NONE;
+                        if (parts.Count >= 2) copyKey = byte.Parse(parts[1]);
+
+                        await SendGetClipboardAsync(stream, copyKey);
+                        Console.WriteLine("[ok] getclip sent");
+                    }
+                    else
+                    {
+                        Console.WriteLine("unknown command");
+                    }
+                }
+            }
+            finally
+            {
+                cts.Cancel();
+                try { await readerTask; } catch { /* ignore */ }
+            }
+
+            return 0;
+        }
+
+        // =========================
+        // PC -> Device (CONTROL MSG)
+        // =========================
+
+        private static async Task SendTouchAsync(Stream s, ushort sw, ushort sh, int x, int y,
+                                         byte action, ulong pointerId, float pressure01)
+        {
+            // 32 bytes fixed
+            byte[] buf = new byte[32];
+            buf[0] = T_INJECT_TOUCH_EVENT;
+            buf[1] = action;
+
+            Be.WriteU64(buf, 2, pointerId);
+
+            Be.WriteU32(buf, 10, unchecked((uint)x));
+            Be.WriteU32(buf, 14, unchecked((uint)y));
+            Be.WriteU16(buf, 18, sw);
+            Be.WriteU16(buf, 20, sh);
+
+            ushort p = Be.Float01ToU16Fixed(pressure01);
+            Be.WriteU16(buf, 22, p);
+
+            Be.WriteU32(buf, 24, 0); // action_button
+            Be.WriteU32(buf, 28, 0); // buttons
+
+            await s.WriteAsync(buf, 0, buf.Length);
+            await s.FlushAsync();
+        }
+
+        private static async Task SendSetClipboardAsync(Stream s, ulong sequence, byte paste, string text)
+        {
+            // header 14 bytes + utf8 bytes
+            byte[] utf8 = Encoding.UTF8.GetBytes(text);
+            int len = utf8.Length;
+
+            byte[] hdr = new byte[14];
+            hdr[0] = T_SET_CLIPBOARD;
+            Be.WriteU64(hdr, 1, sequence);
+            hdr[9] = paste;
+            Be.WriteU32(hdr, 10, (uint)len);
+
+            await s.WriteAsync(hdr, 0, hdr.Length);
+            if (len > 0) await s.WriteAsync(utf8, 0, len);
+            await s.FlushAsync();
+        }
+
+        private static async Task SendGetClipboardAsync(Stream s, byte copyKey)
+        {
+            byte[] msg = new byte[2];
+            msg[0] = T_GET_CLIPBOARD;
+            msg[1] = copyKey;
+
+            await s.WriteAsync(msg, 0, msg.Length);
+            await s.FlushAsync();
+        }
+
+        // =========================
+        // Device -> PC (DEVICE MSG)
+        // =========================
+        // Framing (from header):
+        //   type: 1 byte
+        //   length: 4 bytes (u32 BE)
+        //   payload: length bytes
+        private static async Task DeviceReaderLoop(Stream s, CancellationToken ct)
+        {
+            try
+            {
+                while (!ct.IsCancellationRequested)
+                {
+                    int t0 = await ReadByteAsync(s, ct);
+                    if (t0 < 0) break;
+
+                    byte type = (byte)t0;
+                    uint len = await ReadU32BEAsync(s, ct);
+
+                    // total msg size = 1 + 4 + len must be <= DEVICE_MSG_MAX_SIZE
+                    if (len > DEVICE_MSG_MAX_SIZE - 5)
+                    {
+                        Console.WriteLine($"[device] invalid payload len={len} (max {DEVICE_MSG_MAX_SIZE - 5}) -> abort");
+                        break;
+                    }
+
+                    byte[] payload = await ReadExactlyAsync(s, (int)len, ct);
+
+                    if (type == T_DEV_CLIPBOARD)
+                    {
+                        // payload is UTF-8 text (not null-terminated)
+                        if (len > DEVICE_MSG_TEXT_MAX_LENGTH)
+                        {
+                            Console.WriteLine($"[device] clipboard text too large len={len} -> abort");
+                            break;
+                        }
+
+                        string text = Encoding.UTF8.GetString(payload);
+                        Console.WriteLine();
+                        Console.WriteLine($"[device] CLIPBOARD len={len}");
+                        Console.WriteLine(text);
+                        Console.WriteLine();
+                    }
+                    else if (type == T_DEV_ACK_CLIPBOARD)
+                    {
+                        // payload: u64 sequence (BE)
+                        if (len != 8)
+                        {
+                            Console.WriteLine($"[device] ACK_CLIPBOARD unexpected len={len} (expected 8)");
+                        }
+
+                        if (payload.Length >= 8)
+                        {
+                            ulong seq = Be.ReadU64(payload, 0);
+                            Console.WriteLine($"[device] ACK_CLIPBOARD seq={seq}");
+                        }
+                    }
+                    else if (type == T_DEV_UHID_OUTPUT)
+                    {
+                        // Optional: you can ignore for now, or parse it if you use UHID.
+                        Console.WriteLine($"[device] UHID_OUTPUT len={len} (ignored)");
+                    }
+                    else
+                    {
+                        Console.WriteLine($"[device] unknown type={type} len={len} (mismatch?) -> abort");
+                        break;
+                    }
+                }
+            }
+            catch (OperationCanceledException) { }
+            catch (EndOfStreamException)
+            {
+                Console.WriteLine("[device] disconnected");
+            }
+            catch (IOException ex)
+            {
+                Console.WriteLine($"[device] io error: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[device] error: {ex}");
+            }
+        }
+
+        private static async Task<int> ReadByteAsync(Stream s, CancellationToken ct)
+        {
+            byte[] b = new byte[1];
+            int n = await s.ReadAsync(b, 0, 1, ct);
+            if (n <= 0) return -1;
+            return b[0];
+        }
+
+        private static async Task<uint> ReadU32BEAsync(Stream s, CancellationToken ct)
+        {
+            byte[] b = await ReadExactlyAsync(s, 4, ct);
+            return Be.ReadU32(b, 0);
+        }
+
+        private static async Task<byte[]> ReadExactlyAsync(Stream s, int size, CancellationToken ct)
+        {
+            byte[] buf = new byte[size];
+            int off = 0;
+            while (off < size)
+            {
+                int n = await s.ReadAsync(buf, off, size - off, ct);
+                if (n <= 0) throw new EndOfStreamException();
+                off += n;
+            }
+            return buf;
+        }
+
+        private static int Lerp(int a, int b, int i, int n)
+        {
+            return a + (int)Math.Round((b - a) * (i / (double)n));
+        }
+
+        private static List<string> SplitArgs(string line)
+        {
+            var list = new List<string>();
+            var sb = new StringBuilder();
+            bool inQuote = false;
+
+            for (int i = 0; i < line.Length; i++)
+            {
+                char c = line[i];
+                if (c == '"') { inQuote = !inQuote; continue; }
+
+                if (!inQuote && char.IsWhiteSpace(c))
+                {
+                    if (sb.Length > 0) { list.Add(sb.ToString()); sb.Clear(); }
+                    continue;
+                }
+
+                sb.Append(c);
+            }
+
+            if (sb.Length > 0) list.Add(sb.ToString());
+            return list;
+        }
+
+        private static class Be
+        {
+            public static void WriteU16(byte[] b, int o, ushort v)
+            {
+                b[o] = (byte)(v >> 8);
+                b[o + 1] = (byte)v;
+            }
+
+            public static void WriteU32(byte[] b, int o, uint v)
+            {
+                b[o] = (byte)(v >> 24);
+                b[o + 1] = (byte)(v >> 16);
+                b[o + 2] = (byte)(v >> 8);
+                b[o + 3] = (byte)v;
+            }
+
+            public static void WriteU64(byte[] b, int o, ulong v)
+            {
+                b[o + 0] = (byte)(v >> 56);
+                b[o + 1] = (byte)(v >> 48);
+                b[o + 2] = (byte)(v >> 40);
+                b[o + 3] = (byte)(v >> 32);
+                b[o + 4] = (byte)(v >> 24);
+                b[o + 5] = (byte)(v >> 16);
+                b[o + 6] = (byte)(v >> 8);
+                b[o + 7] = (byte)v;
+            }
+
+            public static uint ReadU32(byte[] b, int o)
+            {
+                return ((uint)b[o] << 24)
+                     | ((uint)b[o + 1] << 16)
+                     | ((uint)b[o + 2] << 8)
+                     | b[o + 3];
+            }
+
+            public static ulong ReadU64(byte[] b, int o)
+            {
+                return ((ulong)b[o] << 56)
+                     | ((ulong)b[o + 1] << 48)
+                     | ((ulong)b[o + 2] << 40)
+                     | ((ulong)b[o + 3] << 32)
+                     | ((ulong)b[o + 4] << 24)
+                     | ((ulong)b[o + 5] << 16)
+                     | ((ulong)b[o + 6] << 8)
+                     | b[o + 7];
+            }
+
+            public static ushort Float01ToU16Fixed(float f)
+            {
+                if (f <= 0) return 0;
+                if (f >= 1) return 0xFFFF;
+                uint u = (uint)(f * 65536f);
+                if (u > 0xFFFF) u = 0xFFFF;
+                return (ushort)u;
+            }
+        }
+
+
+        private sealed class Options
+        {
+            public string Host { get; private set; } = "127.0.0.1";
+            public int Port { get; private set; } = 27183;
+
+            public ushort ScreenW { get; private set; } = 1080;
+            public ushort ScreenH { get; private set; } = 2400;
+
+            public static Options Parse(string[] args)
+            {
+                var o = new Options();
+                for (int i = 0; i < args.Length; i++)
+                {
+                    string a = args[i];
+                    string Next() => (i + 1 < args.Length) ? args[++i] : throw new ArgumentException($"Missing value for {a}");
+
+                    switch (a)
+                    {
+                        case "--host": o.Host = Next(); break;
+                        case "--port": o.Port = int.Parse(Next()); break;
+                        case "--sw": o.ScreenW = ushort.Parse(Next()); break;
+                        case "--sh": o.ScreenH = ushort.Parse(Next()); break;
+                    }
+                }
+                return o;
+            }
+        }
+    }
+}
