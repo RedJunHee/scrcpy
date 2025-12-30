@@ -15,6 +15,7 @@ namespace ScrcpyConsoleControl
         private const string CommandClipGet = "CLIP_GET";
         private const string CommandClipSet = "CLIP_SET";
         private const string CommandKeycode = "KEYCODE";
+        private const string CommandPing = "PING";
 
         // 안드로이드 KEYCODE_PASTE = 279 (android.view.KeyEvent)
         private const int AndroidKeycodePaste = 279;
@@ -49,6 +50,7 @@ namespace ScrcpyConsoleControl
                     Console.WriteLine("  setclip text...");
                     Console.WriteLine("  pasteclip text...");
                     Console.WriteLine("  getclip");
+                    Console.WriteLine("  ping");
                     Console.WriteLine("  exit");
                     Console.WriteLine();
 
@@ -170,6 +172,14 @@ namespace ScrcpyConsoleControl
                     continue;
                 }
 
+                if (cmd == "ping")
+                {
+                    // 서버 연결 상태를 확인하기 위해 PING 요청을 보낸다.
+                    SendPing(writer);
+                    ReadAndPrintResponse(reader, "ping");
+                    continue;
+                }
+
                 Console.WriteLine("unknown command");
             }
         }
@@ -197,6 +207,12 @@ namespace ScrcpyConsoleControl
             // 서버는 CLIP_SET 인수로 base64 텍스트를 기대한다.
             string encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(text));
             writer.WriteLine(string.Format("{0} {1}", CommandClipSet, encoded));
+        }
+
+        private static void SendPing(StreamWriter writer)
+        {
+            // 서버 컨트롤 프로토콜: "PING" -> 응답은 "OK PONG"
+            writer.WriteLine(CommandPing);
         }
 
         private static void SendKeycode(StreamWriter writer, int keycode, string action)
@@ -230,6 +246,12 @@ namespace ScrcpyConsoleControl
                     Console.WriteLine("[resp] OK (clipboard)");
                     Console.WriteLine(decoded);
                 }
+                return;
+            }
+
+            if (actionLabel == "ping" && response == "OK PONG")
+            {
+                Console.WriteLine("[resp] PONG");
                 return;
             }
 
