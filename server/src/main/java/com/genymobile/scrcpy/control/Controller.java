@@ -139,7 +139,7 @@ public class Controller implements AsyncProcessor {
 
         // 어떤 컨트롤 명령이 들어왔는지 기본 정보를 로그로 남긴다.
         // 인수는 길이 중심으로 기록해 민감 데이터 노출을 최소화한다.
-        Ln.d("컨트롤 명령 수신: command=" + command + ", argsLength=" + arguments.length());
+        //Ln.d("컨트롤 명령 수신: command=" + command + ", argsLength=" + arguments.length());
 
         if ("PING".equals(command)) {
             sendOk("PONG");

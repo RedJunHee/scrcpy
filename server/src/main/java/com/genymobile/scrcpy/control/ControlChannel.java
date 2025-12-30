@@ -31,11 +31,11 @@ public final class ControlChannel {
      */
     public String recv() throws IOException {
         // 컨트롤 소켓으로부터 입력이 올 때까지 대기 중임을 로그로 남긴다.
-        Ln.d("컨트롤 소켓 수신 대기중");
+        //Ln.d("컨트롤 소켓 수신 대기중");
         String line = reader.readLine();
         if (line == null) {
             // 소켓이 닫히면 EOF가 반환된다.
-            Ln.d("컨트롤 소켓 EOF 수신");
+            //Ln.d("컨트롤 소켓 EOF 수신");
             return null;
         }
 
@@ -43,7 +43,7 @@ public final class ControlChannel {
         byte[] bytes = line.getBytes(StandardCharsets.UTF_8);
         String bytePreview = toHexPreview(bytes, LOG_BYTE_PREVIEW_LIMIT);
         String textPreview = toTextPreview(line, LOG_TEXT_PREVIEW_LIMIT);
-        Ln.d("컨트롤 소켓 수신: textLength=" + line.length() + ", byteLength=" + bytes.length
+        //Ln.d("컨트롤 소켓 수신: textLength=" + line.length() + ", byteLength=" + bytes.length
                 + ", textPreview=\"" + textPreview + "\", bytePreview=" + bytePreview);
         return line;
     }
