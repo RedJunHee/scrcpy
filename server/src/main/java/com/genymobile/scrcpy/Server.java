@@ -21,7 +21,7 @@ public final class Server {
 
     static {
         String[] classPaths = System.getProperty("java.class.path").split(File.pathSeparator);
-        // By convention, scrcpy is always executed with the absolute path of scrcpy-server.jar as the first item in the classpath
+        // 관례상 framex는 classpath 첫 항목으로 framex-server.jar의 절대 경로를 전달한다.
         SERVER_PATH = classPaths[0];
     }
 

@@ -5,7 +5,7 @@ public interface AsyncProcessor {
         /**
          * Notify processor termination
          *
-         * @param fatalError {@code true} if this must cause the termination of the whole scrcpy-server.
+         * @param fatalError {@code true} if this must cause the termination of the whole framex-server.
          */
         void onTerminated(boolean fatalError);
     }

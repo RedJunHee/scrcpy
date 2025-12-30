@@ -15,13 +15,14 @@
 #include "util/process.h"
 #include "util/str.h"
 
-#define SC_SERVER_FILENAME "scrcpy-server"
+#define SC_SERVER_FILENAME "framex-server"
 
-#define SC_SERVER_PATH_DEFAULT PREFIX "/share/scrcpy/" SC_SERVER_FILENAME
-#define SC_DEVICE_SERVER_PATH "/data/local/tmp/scrcpy-server.jar"
+#define SC_SERVER_PATH_DEFAULT PREFIX "/share/framex/" SC_SERVER_FILENAME
+#define SC_DEVICE_SERVER_PATH "/data/local/tmp/framex-server.jar"
 
 #define SC_ADB_PORT_DEFAULT 5555
-#define SC_SOCKET_NAME_PREFIX "scrcpy_"
+// 서버/클라이언트 간 소켓 이름 규칙은 반드시 동일해야 한다.
+#define SC_SOCKET_NAME_PREFIX "framex_"
 
 static char *
 get_server_path(void) {
@@ -1155,7 +1156,7 @@ error_connection_failed:
 bool
 sc_server_start(struct sc_server *server) {
     bool ok =
-        sc_thread_create(&server->thread, run_server, "scrcpy-server", server);
+        sc_thread_create(&server->thread, run_server, "framex-server", server);
     if (!ok) {
         LOGE("Could not create server thread");
         return false;
