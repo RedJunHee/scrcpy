@@ -28,8 +28,11 @@ namespace ScrcpyConsoleControl
                 tcp.NoDelay = true;
 
                 using (NetworkStream stream = tcp.GetStream())
-                using (StreamReader reader = new StreamReader(stream, Encoding.UTF8))
-                using (StreamWriter writer = new StreamWriter(stream, Encoding.UTF8))
+                // UTF-8 BOM이 송신되면 서버가 "﻿TAP"처럼 BOM 포함 문자열로 인식한다.
+                // 따라서 BOM 없는 UTF-8 인코딩을 명시한다.
+                Encoding utf8NoBom = new UTF8Encoding(false);
+                using (StreamReader reader = new StreamReader(stream, utf8NoBom))
+                using (StreamWriter writer = new StreamWriter(stream, utf8NoBom))
                 {
                     // StreamWriter는 기본적으로 버퍼링을 사용하므로 AutoFlush를 활성화한다.
                     writer.NewLine = "\n";
