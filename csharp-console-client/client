@@ -14,6 +14,10 @@ namespace ScrcpyConsoleControl
         private const string CommandDrag = "DRAG";
         private const string CommandClipGet = "CLIP_GET";
         private const string CommandClipSet = "CLIP_SET";
+        private const string CommandKeycode = "KEYCODE";
+
+        // 안드로이드 KEYCODE_PASTE = 279 (android.view.KeyEvent)
+        private const int AndroidKeycodePaste = 279;
 
         public static int Main(string[] args)
         {
@@ -27,10 +31,11 @@ namespace ScrcpyConsoleControl
                 tcp.Connect(opt.Host, opt.Port);
                 tcp.NoDelay = true;
 
-                using (NetworkStream stream = tcp.GetStream())
                 // UTF-8 BOM이 송신되면 서버가 "﻿TAP"처럼 BOM 포함 문자열로 인식한다.
                 // 따라서 BOM 없는 UTF-8 인코딩을 명시한다.
                 Encoding utf8NoBom = new UTF8Encoding(false);
+
+                using (NetworkStream stream = tcp.GetStream())
                 using (StreamReader reader = new StreamReader(stream, utf8NoBom))
                 using (StreamWriter writer = new StreamWriter(stream, utf8NoBom))
                 {
@@ -42,6 +47,7 @@ namespace ScrcpyConsoleControl
                     Console.WriteLine("  tap x y");
                     Console.WriteLine("  drag x1 y1 x2 y2 durationMs steps");
                     Console.WriteLine("  setclip text...");
+                    Console.WriteLine("  pasteclip text...");
                     Console.WriteLine("  getclip");
                     Console.WriteLine("  exit");
                     Console.WriteLine();
@@ -139,6 +145,24 @@ namespace ScrcpyConsoleControl
                     continue;
                 }
 
+                if (cmd == "pasteclip")
+                {
+                    if (parts.Count < 2)
+                    {
+                        Console.WriteLine("usage: pasteclip text...");
+                        continue;
+                    }
+
+                    string text = string.Join(" ", parts.GetRange(1, parts.Count - 1));
+                    SendClipboardSet(writer, text);
+                    ReadAndPrintResponse(reader, "setclip");
+
+                    // 클립보드 세팅 후 붙여넣기 키코드를 전송한다.
+                    SendKeycode(writer, AndroidKeycodePaste, "both");
+                    ReadAndPrintResponse(reader, "pasteclip");
+                    continue;
+                }
+
                 if (cmd == "getclip")
                 {
                     SendClipboardGet(writer);
@@ -174,6 +198,13 @@ namespace ScrcpyConsoleControl
             string encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(text));
             writer.WriteLine(string.Format("{0} {1}", CommandClipSet, encoded));
         }
+
+        private static void SendKeycode(StreamWriter writer, int keycode, string action)
+        {
+            // 서버 컨트롤 프로토콜: "KEYCODE <code> <action>"
+            writer.WriteLine(string.Format("{0} {1} {2}", CommandKeycode, keycode, action));
+        }
+
 
         private static void ReadAndPrintResponse(StreamReader reader, string actionLabel)
         {
