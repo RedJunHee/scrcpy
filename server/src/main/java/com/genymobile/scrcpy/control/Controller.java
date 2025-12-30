@@ -20,6 +20,8 @@ import java.util.StringTokenizer;
 public class Controller implements AsyncProcessor {
 
     private static final int DEFAULT_DEVICE_ID = 0;
+    // 로그에 너무 긴 클립보드 본문이 그대로 찍히지 않도록 미리보기 길이를 제한한다.
+    private static final int CLIPBOARD_LOG_PREVIEW_LIMIT = 64;
 
     private final int displayId;
     private final boolean supportsInputEvents;
@@ -135,6 +137,10 @@ public class Controller implements AsyncProcessor {
 
         command = command.toUpperCase(Locale.ENGLISH);
 
+        // 어떤 컨트롤 명령이 들어왔는지 기본 정보를 로그로 남긴다.
+        // 인수는 길이 중심으로 기록해 민감 데이터 노출을 최소화한다.
+        Ln.d("컨트롤 명령 수신: command=" + command + ", argsLength=" + arguments.length());
+
         if ("PING".equals(command)) {
             sendOk("PONG");
             return true;
@@ -159,7 +165,9 @@ public class Controller implements AsyncProcessor {
         if ("TAP".equals(command)) {
             handleTap(arguments);
         } else if ("SWIPE".equals(command) || "DRAG".equals(command)) {
-            handleSwipe(arguments);
+            // SWIPE와 DRAG는 같은 입력 경로를 사용하지만 로그에서 의미를 분리한다.
+            boolean isDrag = "DRAG".equals(command);
+            handleSwipe(arguments, isDrag);
         } else if ("KEYCODE".equals(command)) {
             handleKeycode(arguments);
         } else if ("TEXT".equals(command)) {
@@ -211,10 +219,13 @@ public class Controller implements AsyncProcessor {
         }
 
         boolean ok = injectTap(x.intValue(), y.intValue(), pressure, buttons);
+        // 클라이언트 터치 요청을 디버깅할 수 있도록 입력 정보를 상세히 남긴다.
+        Ln.i("터치 입력 요청 처리: x=" + x + ", y=" + y + ", pressure=" + pressure
+                + ", buttons=" + buttons + ", 결과=" + (ok ? "성공" : "실패"));
         respond(ok, null);
     }
 
-    private void handleSwipe(String arguments) throws IOException {
+    private void handleSwipe(String arguments, boolean isDrag) throws IOException {
         StringTokenizer tokenizer = new StringTokenizer(arguments);
         if (tokenizer.countTokens() < 5) {
             sendError("INVALID_ARGS");
@@ -237,6 +248,10 @@ public class Controller implements AsyncProcessor {
         }
 
         boolean ok = injectSwipe(x1.intValue(), y1.intValue(), x2.intValue(), y2.intValue(), durationMs.intValue());
+        // 드래그/스와이프 입력의 경로와 시간을 상세히 기록한다.
+        String actionLabel = isDrag ? "드래그" : "스와이프";
+        Ln.i(actionLabel + " 입력 요청 처리: 시작=(" + x1 + "," + y1 + "), 종료=(" + x2 + "," + y2 + "), durationMs=" + durationMs
+                + ", 결과=" + (ok ? "성공" : "실패"));
         respond(ok, null);
     }
 
@@ -289,12 +304,16 @@ public class Controller implements AsyncProcessor {
     }
 
     private void handleClipboardGet() throws IOException {
+        // 클립보드 복사 요청은 상세 로그로 남겨 클라이언트 동작을 추적한다.
+        Ln.i("클립보드 GET 요청 수신");
         String clipboardText = Device.getClipboardText();
         if (clipboardText == null) {
+            Ln.w("클립보드 GET 실패: 클립보드 접근 불가");
             sendError("CLIPBOARD_UNAVAILABLE");
             return;
         }
 
+        Ln.i("클립보드 GET 결과: length=" + clipboardText.length() + ", preview=\"" + toPreview(clipboardText) + "\"");
         String encoded = encodeBase64(clipboardText);
         sendOk(encoded);
     }
@@ -302,11 +321,15 @@ public class Controller implements AsyncProcessor {
     private void handleClipboardSet(String arguments) throws IOException {
         String decoded = decodeBase64(arguments);
         if (decoded == null) {
+            Ln.w("클립보드 SET 실패: base64 디코딩 오류");
             sendError("INVALID_BASE64");
             return;
         }
 
+        // 클립보드 붙여넣기용 데이터 수신 내용을 상세히 기록한다.
+        Ln.i("클립보드 SET 요청 수신: length=" + decoded.length() + ", preview=\"" + toPreview(decoded) + "\"");
         boolean ok = Device.setClipboardText(decoded);
+        Ln.i("클립보드 SET 처리 결과: " + (ok ? "성공" : "실패"));
         respond(ok, ok ? null : "CLIPBOARD_SET_FAILED");
     }
 
@@ -469,5 +492,19 @@ public class Controller implements AsyncProcessor {
 
         byte[] data = text.getBytes(StandardCharsets.UTF_8);
         return Base64.encodeToString(data, Base64.NO_WRAP);
+    }
+
+    private String toPreview(String text) {
+        if (text == null) {
+            return "";
+        }
+
+        int limit = CLIPBOARD_LOG_PREVIEW_LIMIT;
+        if (text.length() <= limit) {
+            return text;
+        }
+
+        String prefix = text.substring(0, limit);
+        return prefix + "...(len=" + text.length() + ")";
     }
 }
