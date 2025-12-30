@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# This script generates the scrcpy binary "manually" (without gradle).
+# This script generates the framex server binary "manually" (without gradle).
 #
 # Adapt Android platform and build tools versions (via ANDROID_PLATFORM and
 # ANDROID_BUILD_TOOLS environment variables).
@@ -23,7 +23,8 @@ BUILD_DIR="$(realpath ${BUILD_DIR:-build_manual})"
 CLASSES_DIR="$BUILD_DIR/classes"
 GEN_DIR="$BUILD_DIR/gen"
 SERVER_DIR=$(dirname "$0")
-SERVER_BINARY=scrcpy-server
+# 서버 바이너리 이름은 데스크톱/디바이스 경로와 일치해야 한다.
+SERVER_BINARY=framex-server
 ANDROID_JAR="$PLATFORM_TOOLS/android.jar"
 ANDROID_AIDL="$PLATFORM_TOOLS/framework.aidl"
 LAMBDA_JAR="$BUILD_TOOLS_DIR/core-lambda-stubs.jar"

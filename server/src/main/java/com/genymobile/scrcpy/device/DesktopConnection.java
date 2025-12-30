@@ -11,7 +11,8 @@ import java.io.IOException;
 
 public final class DesktopConnection implements Closeable {
 
-    private static final String SOCKET_NAME_PREFIX = "scrcpy";
+    // 데스크톱 측과 소켓 이름 규칙을 맞추기 위해 접두어를 고정한다.
+    private static final String SOCKET_NAME_PREFIX = "framex";
 
     private final LocalSocket controlSocket;
     private final ControlChannel controlChannel;
@@ -29,7 +30,7 @@ public final class DesktopConnection implements Closeable {
 
     private static String getSocketName(int scid) {
         if (scid == -1) {
-            // If no SCID is set, use "scrcpy" to simplify using scrcpy-server alone
+            // SCID가 없으면 서버 단독 실행을 단순화하기 위해 접두어만 사용한다.
             return SOCKET_NAME_PREFIX;
         }
 

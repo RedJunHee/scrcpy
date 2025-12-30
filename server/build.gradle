@@ -1,10 +1,12 @@
 apply plugin: 'com.android.application'
 
 android {
+    // 서버 코드의 패키지 구조 변경 범위를 최소화하기 위해 네임스페이스는 유지한다.
     namespace = 'com.genymobile.scrcpy'
     compileSdk 34
     defaultConfig {
-        applicationId = "com.genymobile.scrcpy"
+        // APK 식별자만 변경해 배포 이름을 framex로 맞춘다.
+        applicationId = "com.genymobile.framex"
         minSdkVersion 21
         targetSdkVersion 34
         versionCode 30304
