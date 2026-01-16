@@ -2,6 +2,7 @@ package com.genymobile.scrcpy.wrappers;
 
 import com.genymobile.scrcpy.AndroidVersions;
 import com.genymobile.scrcpy.FakeContext;
+import com.genymobile.scrcpy.util.InjectResult;
 import com.genymobile.scrcpy.util.Ln;
 
 import android.annotation.SuppressLint;
@@ -20,7 +21,6 @@ public final class InputManager {
     public static final int INJECT_INPUT_EVENT_MODE_WAIT_FOR_FINISH = 2;
 
     private final android.hardware.input.InputManager manager;
-    private long lastPermissionLogDate;
 
     private static Method injectInputEventMethod;
     private static Method setDisplayIdMethod;
@@ -45,30 +45,41 @@ public final class InputManager {
         return injectInputEventMethod;
     }
 
-    public boolean injectInputEvent(InputEvent inputEvent, int mode) {
+    public InjectResult injectInputEvent(InputEvent inputEvent, int mode) {
         try {
             Method method = getInjectInputEventMethod();
-            return (boolean) method.invoke(manager, inputEvent, mode);
+            boolean injected = ((Boolean) method.invoke(manager, inputEvent, mode)).booleanValue();
+            if (injected) {
+                return InjectResult.success();
+            }
+            return InjectResult.failure("INJECT_FAILED");
         } catch (ReflectiveOperationException e) {
             if (e instanceof InvocationTargetException) {
                 Throwable cause = e.getCause();
                 if (cause instanceof SecurityException) {
                     String message = e.getCause().getMessage();
                     if (message != null && message.contains("INJECT_EVENTS permission")) {
-                        // Do not flood the console, limit to one permission error log every 3 seconds
-                        long now = System.currentTimeMillis();
-                        if (lastPermissionLogDate <= now - 3000) {
-                            Ln.e(message);
-                            Ln.e("Make sure you have enabled \"USB debugging (Security Settings)\" and then rebooted your device.");
-                            lastPermissionLogDate = now;
-                        }
-                        // Do not print the stack trace
-                        return false;
+                        // 클라이언트에 전달할 수 있도록 권한 오류 코드를 반환한다.
+                        return InjectResult.failure("INJECT_PERMISSION_DENIED");
                     }
                 }
+                if (cause != null) {
+                    // 보안 예외가 아닌 경우에도 원인 메시지를 요약해서 클라이언트로 전달한다.
+                    String causeMessage = cause.getMessage();
+                    String causeSummary = cause.getClass().getSimpleName();
+                    if (causeMessage != null && !causeMessage.isEmpty()) {
+                        causeSummary += ": " + causeMessage;
+                    }
+                    return InjectResult.failure("INJECT_EXCEPTION: " + causeSummary);
+                }
             }
-            Ln.e("Could not invoke method", e);
-            return false;
+            // 스택 트레이스를 출력하지 않고, 간결한 실패 원인만 전달한다.
+            String reason = e.getClass().getSimpleName();
+            String message = e.getMessage();
+            if (message != null && !message.isEmpty()) {
+                reason += ": " + message;
+            }
+            return InjectResult.failure("INJECT_EXCEPTION: " + reason);
         }
     }
 
