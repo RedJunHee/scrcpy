@@ -43,8 +43,7 @@ public final class ControlChannel {
         byte[] bytes = line.getBytes(StandardCharsets.UTF_8);
         String bytePreview = toHexPreview(bytes, LOG_BYTE_PREVIEW_LIMIT);
         String textPreview = toTextPreview(line, LOG_TEXT_PREVIEW_LIMIT);
-        //Ln.d("컨트롤 소켓 수신: textLength=" + line.length() + ", byteLength=" + bytes.length
-                + ", textPreview=\"" + textPreview + "\", bytePreview=" + bytePreview);
+        //Ln.d("컨트롤 소켓 수신: textLength=" + line.length() + ", byteLength=" + bytes.length + ", textPreview=\"" + textPreview + "\", bytePreview=" + bytePreview);
         return line;
     }
 
