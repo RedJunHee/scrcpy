@@ -10,6 +10,7 @@ import com.genymobile.scrcpy.wrappers.InputManager;
 import com.genymobile.scrcpy.wrappers.ServiceManager;
 import com.genymobile.scrcpy.wrappers.SurfaceControl;
 import com.genymobile.scrcpy.wrappers.WindowManager;
+import com.genymobile.scrcpy.util.InjectResult;
 
 import android.annotation.SuppressLint;
 import android.content.Intent;
@@ -57,28 +58,32 @@ public final class Device {
         return displayId == 0 || Build.VERSION.SDK_INT >= AndroidVersions.API_29_ANDROID_10;
     }
 
-    public static boolean injectEvent(InputEvent inputEvent, int displayId, int injectMode) {
+    public static InjectResult injectEvent(InputEvent inputEvent, int displayId, int injectMode) {
         if (!supportsInputEvents(displayId)) {
             throw new AssertionError("Could not inject input event if !supportsInputEvents()");
         }
 
         if (displayId != 0 && !InputManager.setDisplayId(inputEvent, displayId)) {
-            return false;
+            // 디스플레이 ID를 입력 이벤트에 연결하지 못하면 주입은 실패로 처리한다.
+            return InjectResult.failure("DISPLAY_ID_SET_FAILED");
         }
 
         return ServiceManager.getInputManager().injectInputEvent(inputEvent, injectMode);
     }
 
-    public static boolean injectKeyEvent(int action, int keyCode, int repeat, int metaState, int displayId, int injectMode) {
+    public static InjectResult injectKeyEvent(int action, int keyCode, int repeat, int metaState, int displayId, int injectMode) {
         long now = SystemClock.uptimeMillis();
         KeyEvent event = new KeyEvent(now, now, action, keyCode, repeat, metaState, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, 0,
                 InputDevice.SOURCE_KEYBOARD);
         return injectEvent(event, displayId, injectMode);
     }
 
-    public static boolean pressReleaseKeycode(int keyCode, int displayId, int injectMode) {
-        return injectKeyEvent(KeyEvent.ACTION_DOWN, keyCode, 0, 0, displayId, injectMode)
-                && injectKeyEvent(KeyEvent.ACTION_UP, keyCode, 0, 0, displayId, injectMode);
+    public static InjectResult pressReleaseKeycode(int keyCode, int displayId, int injectMode) {
+        InjectResult downResult = injectKeyEvent(KeyEvent.ACTION_DOWN, keyCode, 0, 0, displayId, injectMode);
+        if (!downResult.isOk()) {
+            return downResult;
+        }
+        return injectKeyEvent(KeyEvent.ACTION_UP, keyCode, 0, 0, displayId, injectMode);
     }
 
     public static boolean isScreenOn(int displayId) {
@@ -184,7 +189,8 @@ public final class Device {
         if (!isScreenOn(displayId)) {
             return true;
         }
-        return pressReleaseKeycode(KeyEvent.KEYCODE_POWER, displayId, Device.INJECT_MODE_ASYNC);
+        // 전원 키 입력 실패 여부만 반환한다.
+        return pressReleaseKeycode(KeyEvent.KEYCODE_POWER, displayId, Device.INJECT_MODE_ASYNC).isOk();
     }
 
     /**

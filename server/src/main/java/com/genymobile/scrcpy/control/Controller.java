@@ -3,6 +3,7 @@ package com.genymobile.scrcpy.control;
 import com.genymobile.scrcpy.AsyncProcessor;
 import com.genymobile.scrcpy.Options;
 import com.genymobile.scrcpy.device.Device;
+import com.genymobile.scrcpy.util.InjectResult;
 import com.genymobile.scrcpy.util.Ln;
 
 import android.os.SystemClock;
@@ -62,6 +63,7 @@ public class Controller implements AsyncProcessor {
     private void control() throws IOException {
         // on start, power on the device
         if (powerOn && displayId == 0 && !Device.isScreenOn(displayId)) {
+            // 전원 키 입력은 상태 복구 목적이므로 실패해도 별도 로그 없이 진행한다.
             Device.pressReleaseKeycode(KeyEvent.KEYCODE_POWER, displayId, Device.INJECT_MODE_ASYNC);
             // 입력과 디스플레이 전원 상태 충돌을 줄이기 위해 잠시 대기한다.
             SystemClock.sleep(500);
@@ -218,11 +220,9 @@ public class Controller implements AsyncProcessor {
             return;
         }
 
-        boolean ok = injectTap(x.intValue(), y.intValue(), pressure, buttons);
-        // 클라이언트 터치 요청을 디버깅할 수 있도록 입력 정보를 상세히 남긴다.
-        Ln.i("터치 입력 요청 처리: x=" + x + ", y=" + y + ", pressure=" + pressure
-                + ", buttons=" + buttons + ", 결과=" + (ok ? "성공" : "실패"));
-        respond(ok, null);
+        InjectResult result = injectTap(x.intValue(), y.intValue(), pressure, buttons);
+        // 좌표/압력 등 상세 정보는 응답에 포함하지 않는다.
+        respondInjectResult("TAP", null, result);
     }
 
     private void handleSwipe(String arguments, boolean isDrag) throws IOException {
@@ -247,12 +247,10 @@ public class Controller implements AsyncProcessor {
             return;
         }
 
-        boolean ok = injectSwipe(x1.intValue(), y1.intValue(), x2.intValue(), y2.intValue(), durationMs.intValue());
-        // 드래그/스와이프 입력의 경로와 시간을 상세히 기록한다.
-        String actionLabel = isDrag ? "드래그" : "스와이프";
-        Ln.i(actionLabel + " 입력 요청 처리: 시작=(" + x1 + "," + y1 + "), 종료=(" + x2 + "," + y2 + "), durationMs=" + durationMs
-                + ", 결과=" + (ok ? "성공" : "실패"));
-        respond(ok, null);
+        InjectResult result = injectSwipe(x1.intValue(), y1.intValue(), x2.intValue(), y2.intValue(), durationMs.intValue());
+        String commandLabel = isDrag ? "DRAG" : "SWIPE";
+        // 이동 경로 정보는 응답에 포함하지 않는다.
+        respondInjectResult(commandLabel, null, result);
     }
 
     private void handleKeycode(String arguments) throws IOException {
@@ -278,8 +276,9 @@ public class Controller implements AsyncProcessor {
             return;
         }
 
-        boolean ok = injectKeycode(keyCode.intValue(), action);
-        respond(ok, null);
+        InjectResult result = injectKeycode(keyCode.intValue(), action);
+        // 키코드 상세는 응답에 포함하지 않는다.
+        respondInjectResult("KEYCODE", null, result);
     }
 
     private void handleText(String arguments) throws IOException {
@@ -294,12 +293,16 @@ public class Controller implements AsyncProcessor {
             return;
         }
 
-        int injected = injectText(decoded);
-        if (injected <= 0) {
+        TextInjectResult result = injectText(decoded);
+        if (!result.isOk()) {
+            // 텍스트 길이 정보도 응답에서 제외하고 사유만 전달한다.
+            sendError(buildInjectError("TEXT", null, result.getError()));
+            return;
+        }
+        if (result.getInjectedCount() <= 0) {
             sendError("TEXT_NOT_SUPPORTED");
             return;
         }
-
         sendOk(null);
     }
 
@@ -333,19 +336,46 @@ public class Controller implements AsyncProcessor {
         respond(ok, ok ? null : "CLIPBOARD_SET_FAILED");
     }
 
-    private boolean injectTap(int x, int y, float pressure, int buttons) {
-        long downTime = SystemClock.uptimeMillis();
-        boolean downOk = injectTouchEvent(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, pressure, buttons);
-        long upTime = SystemClock.uptimeMillis();
-        boolean upOk = injectTouchEvent(downTime, upTime, MotionEvent.ACTION_UP, x, y, pressure, buttons);
-        return downOk && upOk;
+    private void respondInjectResult(String command, String detail, InjectResult result) throws IOException {
+        if (result.isOk()) {
+            sendOk(null);
+            return;
+        }
+        String error = buildInjectError(command, detail, result.getError());
+        sendError(error);
     }
 
-    private boolean injectSwipe(int x1, int y1, int x2, int y2, int durationMs) {
+    private String buildInjectError(String command, String detail, String reason) {
+        // 실패 원인을 클라이언트 응답으로 전달한다.
+        // 서버 로그는 남기지 않고 응답 메시지를 간결하게 구성한다.
+        // 클라이언트는 신뢰된 상태이므로 실패 원인을 응답으로 보내도 된다.
+        // 이벤트 좌표/키 정보는 응답에 포함하지 않고, 실패 사유만 전달한다.
+        StringBuilder builder = new StringBuilder();
+        builder.append("INJECT_FAILED ").append(command);
+        if (detail != null && !detail.isEmpty()) {
+            builder.append(" ").append(detail);
+        }
+        if (reason != null && !reason.isEmpty()) {
+            builder.append(" reason=").append(reason);
+        }
+        return builder.toString();
+    }
+
+    private InjectResult injectTap(int x, int y, float pressure, int buttons) {
         long downTime = SystemClock.uptimeMillis();
-        boolean downOk = injectTouchEvent(downTime, downTime, MotionEvent.ACTION_DOWN, x1, y1, 1.0f, 0);
-        if (!downOk) {
-            return false;
+        InjectResult downResult = injectTouchEvent(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, pressure, buttons);
+        long upTime = SystemClock.uptimeMillis();
+        if (!downResult.isOk()) {
+            return downResult;
+        }
+        return injectTouchEvent(downTime, upTime, MotionEvent.ACTION_UP, x, y, pressure, buttons);
+    }
+
+    private InjectResult injectSwipe(int x1, int y1, int x2, int y2, int durationMs) {
+        long downTime = SystemClock.uptimeMillis();
+        InjectResult downResult = injectTouchEvent(downTime, downTime, MotionEvent.ACTION_DOWN, x1, y1, 1.0f, 0);
+        if (!downResult.isOk()) {
+            return downResult;
         }
 
         int safeDuration = Math.max(0, durationMs);
@@ -357,8 +387,9 @@ public class Controller implements AsyncProcessor {
                 int moveX = x1 + Math.round((x2 - x1) * progress);
                 int moveY = y1 + Math.round((y2 - y1) * progress);
                 long eventTime = downTime + (long) stepDuration * i;
-                if (!injectTouchEvent(downTime, eventTime, MotionEvent.ACTION_MOVE, moveX, moveY, 1.0f, 0)) {
-                    return false;
+                InjectResult moveResult = injectTouchEvent(downTime, eventTime, MotionEvent.ACTION_MOVE, moveX, moveY, 1.0f, 0);
+                if (!moveResult.isOk()) {
+                    return moveResult;
                 }
                 SystemClock.sleep(stepDuration);
             }
@@ -368,7 +399,7 @@ public class Controller implements AsyncProcessor {
         return injectTouchEvent(downTime, upTime, MotionEvent.ACTION_UP, x2, y2, 1.0f, 0);
     }
 
-    private boolean injectTouchEvent(long downTime, long eventTime, int action, int x, int y, float pressure, int buttons) {
+    private InjectResult injectTouchEvent(long downTime, long eventTime, int action, int x, int y, float pressure, int buttons) {
         pointerCoords[0].x = x;
         pointerCoords[0].y = y;
         pointerCoords[0].pressure = pressure;
@@ -378,7 +409,7 @@ public class Controller implements AsyncProcessor {
         return Device.injectEvent(event, displayId, Device.INJECT_MODE_ASYNC);
     }
 
-    private boolean injectKeycode(int keyCode, String action) {
+    private InjectResult injectKeycode(int keyCode, String action) {
         String normalized = action == null ? "both" : action.toLowerCase(Locale.ENGLISH);
         if ("down".equals(normalized)) {
             return injectKeyEvent(KeyEvent.ACTION_DOWN, keyCode);
@@ -389,45 +420,70 @@ public class Controller implements AsyncProcessor {
         if ("both".equals(normalized)) {
             return pressReleaseKeycode(keyCode);
         }
-        return false;
+        return InjectResult.failure("INVALID_ACTION");
     }
 
-    private int injectText(String text) {
+    private TextInjectResult injectText(String text) {
         int successCount = 0;
         for (int i = 0; i < text.length(); ++i) {
             char c = text.charAt(i);
-            if (!injectChar(c)) {
-                Ln.w("Could not inject char u+" + String.format("%04x", (int) c));
-                continue;
+            InjectResult result = injectChar(c);
+            if (!result.isOk()) {
+                return new TextInjectResult(false, successCount, result.getError());
             }
             successCount++;
         }
-        return successCount;
+        return new TextInjectResult(true, successCount, null);
     }
 
-    private boolean injectChar(char c) {
+    private InjectResult injectChar(char c) {
         String decomposed = KeyComposition.decompose(c);
         char[] chars = decomposed != null ? decomposed.toCharArray() : new char[]{c};
         KeyEvent[] events = charMap.getEvents(chars);
         if (events == null) {
-            return false;
+            return InjectResult.failure("TEXT_NOT_SUPPORTED");
         }
 
         for (int i = 0; i < events.length; ++i) {
             KeyEvent event = events[i];
-            if (!Device.injectEvent(event, displayId, Device.INJECT_MODE_ASYNC)) {
-                return false;
+            InjectResult result = Device.injectEvent(event, displayId, Device.INJECT_MODE_ASYNC);
+            if (!result.isOk()) {
+                return result;
             }
         }
-        return true;
+        return InjectResult.success();
     }
 
-    private boolean injectKeyEvent(int action, int keyCode) {
+    private InjectResult injectKeyEvent(int action, int keyCode) {
         return Device.injectKeyEvent(action, keyCode, 0, 0, displayId, Device.INJECT_MODE_ASYNC);
     }
 
-    private boolean pressReleaseKeycode(int keyCode) {
+    private InjectResult pressReleaseKeycode(int keyCode) {
         return Device.pressReleaseKeycode(keyCode, displayId, Device.INJECT_MODE_ASYNC);
+    }
+
+    private static class TextInjectResult {
+        private final boolean ok;
+        private final int injectedCount;
+        private final String error;
+
+        private TextInjectResult(boolean ok, int injectedCount, String error) {
+            this.ok = ok;
+            this.injectedCount = injectedCount;
+            this.error = error;
+        }
+
+        public boolean isOk() {
+            return ok;
+        }
+
+        public int getInjectedCount() {
+            return injectedCount;
+        }
+
+        public String getError() {
+            return error;
+        }
     }
 
     private void respond(boolean ok, String errorMessage) throws IOException {
