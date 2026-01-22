@@ -3,6 +3,8 @@ package com.genymobile.scrcpy.control;
 import com.genymobile.scrcpy.AsyncProcessor;
 import com.genymobile.scrcpy.Options;
 import com.genymobile.scrcpy.device.Device;
+import com.genymobile.scrcpy.framex.FramexRegisterService;
+import com.genymobile.scrcpy.framex.FramexRegisterService.RegisterResult;
 import com.genymobile.scrcpy.util.InjectResult;
 import com.genymobile.scrcpy.util.Ln;
 
@@ -28,7 +30,8 @@ public class Controller implements AsyncProcessor {
     private final boolean supportsInputEvents;
     private final ControlChannel controlChannel;
     private final boolean powerOn;
-
+    // FrameX 등록 API 호출은 전용 서비스로 분리하여 결합도를 낮춘다.
+    private final FramexRegisterService framexRegisterService;
     private final KeyCharacterMap charMap = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD);
 
     private final MotionEvent.PointerProperties[] pointerProperties = new MotionEvent.PointerProperties[1];
@@ -40,6 +43,7 @@ public class Controller implements AsyncProcessor {
         this.displayId = options.getDisplayId();
         this.controlChannel = controlChannel;
         this.powerOn = options.getPowerOn();
+        this.framexRegisterService = new FramexRegisterService();
         initPointers();
 
         supportsInputEvents = Device.supportsInputEvents(displayId);
@@ -148,6 +152,11 @@ public class Controller implements AsyncProcessor {
             return true;
         }
 
+        if ("CONNECT".equals(command)) {
+            handleConnect(arguments);
+            return true;
+        }
+
         if ("CLIP_GET".equals(command)) {
             handleClipboardGet();
             return true;
@@ -179,6 +188,47 @@ public class Controller implements AsyncProcessor {
         }
 
         return true;
+    }
+
+    private void handleConnect(String arguments) throws IOException {
+        StringTokenizer tokenizer = new StringTokenizer(arguments);
+        if (tokenizer.countTokens() < 3) {
+            sendError("INVALID_ARGS");
+            return;
+        }
+
+        // accountId는 현재 FrameX 등록 API에는 포함되지 않지만 추후 확장을 위해 수신한다.
+        String accountId = tokenizer.nextToken();
+        // CONNECT 개발 단계에서는 라이선스 검증을 수행하지 않는다.
+        // 디바이스가 전달하는 식별자를 수집해 향후 검증 로직에 활용한다.
+        String licenseKeyOrId = tokenizer.nextToken();
+        // 머신 UUID 또는 fingerprint가 올 수 있다.
+        String machineId = tokenizer.nextToken();
+
+        if (tokenizer.hasMoreTokens()) {
+            sendError("INVALID_ARGS");
+            return;
+        }
+
+        // 전달된 문자열은 민감 정보일 수 있으므로 길이만 로그로 남긴다.
+        Ln.i("CONNECT 요청 수신: accountIdLen=" + accountId.length() + ", licenseKeyOrIdLen=" + licenseKeyOrId.length()
+                + ", machineIdLen=" + machineId.length());
+        // Android ID를 조회해 FrameX 등록 API에 전달한다.
+        String androidUuid = Device.getAndroidUuid();
+        if (androidUuid == null || androidUuid.isEmpty()) {
+            Ln.w("CONNECT 실패: androidUuid 조회 실패");
+            sendError("CONNECT_FAILED");
+            return;
+        }
+
+        RegisterResult registerResult = framexRegisterService.register(licenseKeyOrId, machineId, androidUuid);
+        if (!registerResult.isOk()) {
+            Ln.w("CONNECT 실패: framex register 실패, reason=" + registerResult.getReason());
+            sendError("CONNECT_FAILED");
+            return;
+        }
+
+        sendOk("CONNECTED");
     }
 
     private void handleTap(String arguments) throws IOException {
