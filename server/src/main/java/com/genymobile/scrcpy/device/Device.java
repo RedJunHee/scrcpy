@@ -21,6 +21,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.IBinder;
 import android.os.SystemClock;
+import android.provider.Settings;
 import android.view.InputDevice;
 import android.view.InputEvent;
 import android.view.KeyCharacterMap;
@@ -51,6 +52,15 @@ public final class Device {
 
     public static String getDeviceName() {
         return Build.MODEL;
+    }
+
+    /**
+     * 안드로이드 고유 식별자로 Android ID를 조회한다.
+     * Android ID는 사용자/기기 조합에 따라 재설정될 수 있으니 절대 불변 값은 아니다.
+     */
+    public static String getAndroidUuid() {
+        // FakeContext는 시스템 컨텍스트를 사용하므로 ContentResolver 접근이 가능하다.
+        return Settings.Secure.getString(FakeContext.get().getContentResolver(), Settings.Secure.ANDROID_ID);
     }
 
     public static boolean supportsInputEvents(int displayId) {
