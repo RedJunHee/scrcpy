@@ -28,7 +28,6 @@ public class Controller implements AsyncProcessor {
     private final boolean supportsInputEvents;
     private final ControlChannel controlChannel;
     private final boolean powerOn;
-
     private final KeyCharacterMap charMap = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD);
 
     private final MotionEvent.PointerProperties[] pointerProperties = new MotionEvent.PointerProperties[1];
@@ -148,6 +147,11 @@ public class Controller implements AsyncProcessor {
             return true;
         }
 
+        if ("CONNECT".equals(command)) {
+            handleConnect(arguments);
+            return true;
+        }
+
         if ("CLIP_GET".equals(command)) {
             handleClipboardGet();
             return true;
@@ -179,6 +183,33 @@ public class Controller implements AsyncProcessor {
         }
 
         return true;
+    }
+
+    private void handleConnect(String arguments) throws IOException {
+        StringTokenizer tokenizer = new StringTokenizer(arguments);
+        if (tokenizer.countTokens() < 3) {
+            sendError("INVALID_ARGS");
+            return;
+        }
+
+        String accountId = tokenizer.nextToken();
+        // CONNECT 개발 단계에서는 라이선스 검증을 수행하지 않는다.
+        // 디바이스가 전달하는 식별자를 수집해 향후 검증 로직에 활용한다.
+        String licenseKeyOrId = tokenizer.nextToken();
+        // 머신 UUID 또는 fingerprint가 올 수 있다.
+        String machineId = tokenizer.nextToken();
+
+        if (tokenizer.hasMoreTokens()) {
+            sendError("INVALID_ARGS");
+            return;
+        }
+
+        // 연결 요청 시 Keygen 라이선스 검증을 수행한다.
+        // 전달된 문자열은 민감 정보일 수 있으므로 길이만 로그로 남긴다.
+        Ln.i("CONNECT 요청 수신: accountIdLen=" + accountId.length() + ", licenseKeyOrIdLen=" + licenseKeyOrId.length()
+                + ", machineIdLen=" + machineId.length());
+        // CONNECT 개발 단계에서는 서버가 정상 처리만 알린다.
+        sendOk("CONNECTED");
     }
 
     private void handleTap(String arguments) throws IOException {
