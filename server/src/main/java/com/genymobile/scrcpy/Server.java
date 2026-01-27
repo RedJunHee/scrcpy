@@ -3,6 +3,8 @@ package com.genymobile.scrcpy;
 import com.genymobile.scrcpy.control.ControlChannel;
 import com.genymobile.scrcpy.control.Controller;
 import com.genymobile.scrcpy.device.DesktopConnection;
+import com.genymobile.scrcpy.net.UdpDiscoveryBroadcaster;
+import com.genymobile.scrcpy.net.UdpDiscoveryResponder;
 import com.genymobile.scrcpy.util.Ln;
 
 import android.annotation.SuppressLint;
@@ -69,6 +71,24 @@ public final class Server {
             ControlChannel controlChannel = connection.getControlChannel();
             Controller controller = new Controller(controlChannel, options);
             asyncProcessors.add(controller);
+
+            if (options.isUdpDiscoveryEnabled()) {
+                // UDP 수신은 기존 제어 채널과 분리된 구성 요소로 유지해 결합도를 낮춘다.
+                UdpDiscoveryResponder responder = new UdpDiscoveryResponder(
+                        options.getUdpDiscoveryPort(),
+                        options.getUdpDiscoveryResponse());
+                asyncProcessors.add(responder);
+            }
+
+            if (options.isUdpDiscoveryBroadcastEnabled()) {
+                // UDP 브로드캐스트 송신도 별도 구성요소로 분리해 단일 책임을 유지한다.
+                UdpDiscoveryBroadcaster broadcaster = new UdpDiscoveryBroadcaster(
+                        options.getUdpDiscoveryBroadcastAddress(),
+                        options.getUdpDiscoveryPort(),
+                        options.getUdpDiscoveryResponse(),
+                        options.getUdpDiscoveryBroadcastIntervalMs());
+                asyncProcessors.add(broadcaster);
+            }
 
             final Completion completion = new Completion(asyncProcessors.size());
             for (int i = 0; i < asyncProcessors.size(); ++i) {
