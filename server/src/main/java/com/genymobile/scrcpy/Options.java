@@ -25,6 +25,10 @@ public class Options {
     private int udpDiscoveryBroadcastIntervalMs = 1000;
     // 브로드캐스트 대상 주소 기본값은 전체 브로드캐스트로 둔다.
     private String udpDiscoveryBroadcastAddress = "255.255.255.255";
+    // FrameX 옵션 마지막 인자로 전달되는 소유자 메타 정보(__owner) 문자열을 보관한다.
+    private String ownerInfo;
+    // FrameX 버전 문자열(version)을 보관한다. (검증하지 않고 보관만 수행)
+    private String framexVersion;
 
     public Ln.Level getLogLevel() {
         return logLevel;
@@ -76,6 +80,14 @@ public class Options {
 
     public String getUdpDiscoveryBroadcastAddress() {
         return udpDiscoveryBroadcastAddress;
+    }
+
+    public String getOwnerInfo() {
+        return ownerInfo;
+    }
+
+    public String getFramexVersion() {
+        return framexVersion;
     }
 
     /**
@@ -150,6 +162,12 @@ public class Options {
                 } else {
                     options.udpDiscoveryBroadcastAddress = value;
                 }
+            } else if ("__owner".equals(key)) {
+                // FrameX 런타임에서 전달하는 메타 정보로, 필요하면 후속 처리에서 참조한다.
+                options.ownerInfo = value;
+            } else if ("version".equals(key)) {
+                // FrameX 전용 버전 정보로, 후속 검증을 위해 값을 보관한다.
+                options.framexVersion = value;
             } else {
                 // 미사용 옵션은 로그만 남기고 무시한다.
                 Ln.w("Unknown server option: " + key);
