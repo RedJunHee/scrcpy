@@ -13,18 +13,6 @@ public class Options {
     private int displayId;
     private boolean powerOn = true;
     private boolean sendDummyByte = true;
-    // 브로드캐스트 탐지를 위한 UDP 응답기능을 기본 비활성화한다.
-    private boolean udpDiscoveryEnabled;
-    // UDP 리스너 포트는 기존 스크립트와 충돌을 피하기 위해 별도 기본값을 둔다.
-    private int udpDiscoveryPort = 27184;
-    // 브로드캐스트 응답/송신 본문은 간단한 식별 문자열로 고정한다.
-    private String udpDiscoveryResponse = "FRAMEX_SERVER";
-    // 서버에서 브로드캐스트 송신을 수행할지 여부를 제어한다.
-    private boolean udpDiscoveryBroadcastEnabled;
-    // 브로드캐스트 송신 주기(밀리초), 너무 짧으면 네트워크에 부담이 된다.
-    private int udpDiscoveryBroadcastIntervalMs = 1000;
-    // 브로드캐스트 대상 주소 기본값은 전체 브로드캐스트로 둔다.
-    private String udpDiscoveryBroadcastAddress = "255.255.255.255";
     // FrameX 옵션 마지막 인자로 전달되는 소유자 메타 정보(__owner) 문자열을 보관한다.
     private String ownerInfo;
     // FrameX 버전 문자열(version)을 보관한다. (검증하지 않고 보관만 수행)
@@ -58,30 +46,6 @@ public class Options {
         return sendDummyByte;
     }
 
-    public boolean isUdpDiscoveryEnabled() {
-        return udpDiscoveryEnabled;
-    }
-
-    public int getUdpDiscoveryPort() {
-        return udpDiscoveryPort;
-    }
-
-    public String getUdpDiscoveryResponse() {
-        return udpDiscoveryResponse;
-    }
-
-    public boolean isUdpDiscoveryBroadcastEnabled() {
-        return udpDiscoveryBroadcastEnabled;
-    }
-
-    public int getUdpDiscoveryBroadcastIntervalMs() {
-        return udpDiscoveryBroadcastIntervalMs;
-    }
-
-    public String getUdpDiscoveryBroadcastAddress() {
-        return udpDiscoveryBroadcastAddress;
-    }
-
     public String getOwnerInfo() {
         return ownerInfo;
     }
@@ -99,6 +63,7 @@ public class Options {
             throw new IllegalArgumentException("Missing client version");
         }
 
+        // 클라이언트/서버 버전 불일치는 초기 단계에서 즉시 차단한다.
         String clientVersion = args[0];
         if (!clientVersion.equals(BuildConfig.VERSION_NAME)) {
             throw new IllegalArgumentException(
@@ -133,35 +98,6 @@ public class Options {
                 options.powerOn = Boolean.parseBoolean(value);
             } else if ("send_dummy_byte".equals(key)) {
                 options.sendDummyByte = Boolean.parseBoolean(value);
-            } else if ("udp_discovery".equals(key)) {
-                options.udpDiscoveryEnabled = Boolean.parseBoolean(value);
-            } else if ("udp_discovery_port".equals(key)) {
-                int parsedPort = Integer.parseInt(value);
-                if (parsedPort <= 0 || parsedPort > 65535) {
-                    throw new IllegalArgumentException("udp_discovery_port must be in 1..65535: " + parsedPort);
-                }
-                options.udpDiscoveryPort = parsedPort;
-            } else if ("udp_discovery_response".equals(key)) {
-                if (value == null || value.trim().isEmpty()) {
-                    Ln.w("udp_discovery_response is empty, keep default value");
-                } else {
-                    options.udpDiscoveryResponse = value;
-                }
-            } else if ("udp_discovery_broadcast".equals(key)) {
-                options.udpDiscoveryBroadcastEnabled = Boolean.parseBoolean(value);
-            } else if ("udp_discovery_broadcast_interval_ms".equals(key)) {
-                int parsedInterval = Integer.parseInt(value);
-                if (parsedInterval <= 0) {
-                    throw new IllegalArgumentException(
-                            "udp_discovery_broadcast_interval_ms must be positive: " + parsedInterval);
-                }
-                options.udpDiscoveryBroadcastIntervalMs = parsedInterval;
-            } else if ("udp_discovery_broadcast_address".equals(key)) {
-                if (value == null || value.trim().isEmpty()) {
-                    Ln.w("udp_discovery_broadcast_address is empty, keep default value");
-                } else {
-                    options.udpDiscoveryBroadcastAddress = value;
-                }
             } else if ("__owner".equals(key)) {
                 // FrameX 런타임에서 전달하는 메타 정보로, 필요하면 후속 처리에서 참조한다.
                 options.ownerInfo = value;

@@ -139,45 +139,6 @@ execution will look like this:
 adb shell CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 2.1 scid=12345678 log_level=info audio=false max_size=1920
 ```
 
-### UDP discovery (FrameX bridge)
-
-FrameX 브리지 서버는 브로드캐스트 기반 탐지를 위해 UDP 응답기를 선택적으로 실행할 수 있다.
-UDP 응답기는 지정된 포트로 들어오는 어떤 UDP 패킷이든 수신하면, 발신 주소/포트로
-고정 문자열을 유니캐스트로 응답한다.
-
-또한 선택적으로 서버가 브로드캐스트 송신을 수행할 수 있다.
-상세 규격은 [UDP 탐지 규격서](udp_discovery_spec.md)를 참고한다.
-
-서버 실행 예시는 다음과 같다:
-
-```bash
-adb shell CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 2.1 \
-  scid=12345678 log_level=info control=true udp_discovery=true \
-  udp_discovery_port=27184 udp_discovery_response=FRAMEX_SERVER
-```
-
-브로드캐스트 송신까지 활성화하는 예시는 다음과 같다:
-
-```bash
-adb shell CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process / com.genymobile.scrcpy.Server 2.1 \
-  scid=12345678 log_level=info control=true udp_discovery=true udp_discovery_broadcast=true \
-  udp_discovery_port=27184 udp_discovery_response=FRAMEX_SERVER \
-  udp_discovery_broadcast_interval_ms=1000 udp_discovery_broadcast_address=255.255.255.255
-```
-
-브로드캐스트를 보내고 응답을 받는 예시는 다음과 같다(동일 네트워크에서 실행):
-
-```bash
-# 터미널 A: 40000 포트로 응답 수신 대기
-nc -u -l 40000
-
-# 터미널 B: 40000 포트를 발신 포트로 고정해 브로드캐스트 송신
-printf "who" | nc -u -b -p 40000 255.255.255.255 27184 -w 1
-```
-
-브로드캐스트 송신 시 응답은 송신 패킷의 발신 포트로 되돌아오므로,
-송신 도구가 응답 수신을 지원하지 않으면 별도로 수신 소켓을 열어야 한다.
-
 ### Components
 
 When executed, its [`main()`][main] method is executed (on the "main" thread).
