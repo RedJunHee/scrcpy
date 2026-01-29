@@ -28,10 +28,13 @@ public class FramexRegisterService {
     public static class RegisterResult {
         private final boolean ok;
         private final String reason;
+        // 실패 시 로그로 남긴 메시지를 그대로 보관해 CONNECT 응답에 포함한다.
+        private final String failureLog;
 
-        public RegisterResult(boolean ok, String reason) {
+        public RegisterResult(boolean ok, String reason, String failureLog) {
             this.ok = ok;
             this.reason = reason;
+            this.failureLog = failureLog;
         }
 
         public boolean isOk() {
@@ -41,11 +44,17 @@ public class FramexRegisterService {
         public String getReason() {
             return reason;
         }
+
+        public String getFailureLog() {
+            return failureLog;
+        }
     }
 
     public RegisterResult register(String licenseKey, String machineId, String androidUuid) {
         if (isBlank(licenseKey) || isBlank(machineId) || isBlank(androidUuid)) {
-            return new RegisterResult(false, "MISSING_FIELDS");
+            String logMessage = "FrameX 등록 실패: 필수 필드 누락";
+            Ln.w(logMessage);
+            return new RegisterResult(false, "MISSING_FIELDS", logMessage);
         }
 
         HttpURLConnection connection = null;
@@ -58,16 +67,20 @@ public class FramexRegisterService {
             String responseBody = readResponseBody(connection);
             if (responseCode == HttpURLConnection.HTTP_OK) {
                 if (parseOkFlag(responseBody)) {
-                    return new RegisterResult(true, null);
+                    return new RegisterResult(true, null, null);
                 }
-                return new RegisterResult(false, "REGISTER_NOT_OK");
+                String logMessage = "FrameX 등록 실패: 응답 ok=false";
+                Ln.w(logMessage);
+                return new RegisterResult(false, "REGISTER_NOT_OK", logMessage);
             }
 
-            Ln.w("FrameX 등록 실패: http=" + responseCode + ", bodyLen=" + responseBody.length());
-            return new RegisterResult(false, "HTTP_" + responseCode);
+            String logMessage = "FrameX 등록 실패: http=" + responseCode + ", bodyLen=" + responseBody.length();
+            Ln.w(logMessage);
+            return new RegisterResult(false, "HTTP_" + responseCode, logMessage);
         } catch (IOException e) {
-            Ln.w("FrameX 등록 통신 오류", e);
-            return new RegisterResult(false, "IO_ERROR");
+            String logMessage = "FrameX 등록 통신 오류";
+            Ln.w(logMessage, e);
+            return new RegisterResult(false, "IO_ERROR", logMessage);
         } finally {
             if (connection != null) {
                 connection.disconnect();

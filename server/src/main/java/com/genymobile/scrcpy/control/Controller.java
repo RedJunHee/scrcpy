@@ -196,11 +196,13 @@ public class Controller implements AsyncProcessor {
     }
 
     private void handleConnect(String arguments) throws IOException {
+        // CONNECT 실패 로그를 모아 응답에 그대로 전달한다.
+        ConnectFailureLog failureLog = new ConnectFailureLog();
         StringTokenizer tokenizer = new StringTokenizer(arguments);
         if (tokenizer.countTokens() < 3) {
             // CONNECT는 3개의 토큰(accountId, licenseKeyOrId, machineId)이 필요하다.
-            Ln.w("CONNECT 실패: 토큰 개수 부족, count=" + tokenizer.countTokens());
-            sendError("INVALID_ARGS");
+            addConnectFailure(failureLog, "CONNECT 실패: 토큰 개수 부족, count=" + tokenizer.countTokens());
+            sendConnectError("INVALID_ARGS", failureLog);
             return;
         }
 
@@ -214,8 +216,8 @@ public class Controller implements AsyncProcessor {
 
         if (tokenizer.hasMoreTokens()) {
             // 추가 토큰이 오면 프로토콜 오류로 판단한다.
-            Ln.w("CONNECT 실패: 불필요한 토큰 포함");
-            sendError("INVALID_ARGS");
+            addConnectFailure(failureLog, "CONNECT 실패: 불필요한 토큰 포함");
+            sendConnectError("INVALID_ARGS", failureLog);
             return;
         }
 
@@ -225,19 +227,74 @@ public class Controller implements AsyncProcessor {
         // Android ID를 조회해 FrameX 등록 API에 전달한다.
         String androidUuid = Device.getAndroidUuid();
         if (androidUuid == null || androidUuid.isEmpty()) {
-            Ln.w("CONNECT 실패: androidUuid 조회 실패");
-            sendError("CONNECT_FAILED");
+            addConnectFailure(failureLog, "CONNECT 실패: androidUuid 조회 실패");
+            sendConnectError("CONNECT_FAILED", failureLog);
             return;
         }
 
         RegisterResult registerResult = framexRegisterService.register(licenseKeyOrId, machineId, androidUuid);
         if (!registerResult.isOk()) {
-            Ln.w("CONNECT 실패: framex register 실패, reason=" + registerResult.getReason());
-            sendError("CONNECT_FAILED");
+            addConnectFailure(failureLog, "CONNECT 실패: framex register 실패, reason=" + registerResult.getReason());
+            appendFramexFailureLog(failureLog, registerResult);
+            sendConnectError("CONNECT_FAILED", failureLog);
             return;
         }
 
         sendOk("CONNECTED");
+    }
+
+    // FrameX 등록 실패 로그가 존재하면 CONNECT 실패 로그에 추가한다.
+    private void appendFramexFailureLog(ConnectFailureLog failureLog, RegisterResult registerResult) {
+        if (registerResult == null) {
+            return;
+        }
+        String framexLog = registerResult.getFailureLog();
+        if (framexLog != null && !framexLog.isEmpty()) {
+            failureLog.add(framexLog);
+        }
+    }
+
+    private void addConnectFailure(ConnectFailureLog failureLog, String logMessage) {
+        Ln.w(logMessage);
+        failureLog.add(logMessage);
+    }
+
+    private void sendConnectError(String errorCode, ConnectFailureLog failureLog) throws IOException {
+        String payload = failureLog.toPayload();
+        if (payload.isEmpty()) {
+            sendError(errorCode);
+            return;
+        }
+        sendError(errorCode + " " + payload);
+    }
+
+    /**
+     * CONNECT 실패 로그를 한 줄로 모아 응답에 포함하는 보조 클래스.
+     * 여러 실패 원인을 " | "로 구분해 프로토콜 개행을 피한다.
+     */
+    private static class ConnectFailureLog {
+        private final java.util.List<String> messages = new java.util.ArrayList<String>();
+
+        public void add(String message) {
+            if (message == null || message.isEmpty()) {
+                return;
+            }
+            messages.add(message);
+        }
+
+        public String toPayload() {
+            if (messages.isEmpty()) {
+                return "";
+            }
+            StringBuilder builder = new StringBuilder();
+            for (int i = 0; i < messages.size(); ++i) {
+                if (i > 0) {
+                    builder.append(" | ");
+                }
+                builder.append(messages.get(i));
+            }
+            return builder.toString();
+        }
     }
 
     private void handleTap(String arguments) throws IOException {
