@@ -121,11 +121,14 @@ public class Controller implements AsyncProcessor {
         }
 
         if (line == null) {
+            // 클라이언트가 소켓을 닫으면 더 이상 명령을 받을 수 없다.
             return false;
         }
 
         String trimmed = line.trim();
         if (trimmed.isEmpty()) {
+            // 빈 라인은 프로토콜 위반이므로 오류를 반환한다.
+            Ln.w("컨트롤 명령 수신 실패: 빈 라인");
             sendError("EMPTY_COMMAND");
             return true;
         }
@@ -184,6 +187,8 @@ public class Controller implements AsyncProcessor {
         } else if ("TEXT".equals(command)) {
             handleText(arguments);
         } else {
+            // 알려지지 않은 명령은 경고로 기록해 클라이언트 호출을 추적한다.
+            Ln.w("알 수 없는 컨트롤 명령 수신: command=" + command);
             sendError("UNKNOWN_COMMAND");
         }
 
@@ -193,6 +198,8 @@ public class Controller implements AsyncProcessor {
     private void handleConnect(String arguments) throws IOException {
         StringTokenizer tokenizer = new StringTokenizer(arguments);
         if (tokenizer.countTokens() < 3) {
+            // CONNECT는 3개의 토큰(accountId, licenseKeyOrId, machineId)이 필요하다.
+            Ln.w("CONNECT 실패: 토큰 개수 부족, count=" + tokenizer.countTokens());
             sendError("INVALID_ARGS");
             return;
         }
@@ -206,6 +213,8 @@ public class Controller implements AsyncProcessor {
         String machineId = tokenizer.nextToken();
 
         if (tokenizer.hasMoreTokens()) {
+            // 추가 토큰이 오면 프로토콜 오류로 판단한다.
+            Ln.w("CONNECT 실패: 불필요한 토큰 포함");
             sendError("INVALID_ARGS");
             return;
         }
