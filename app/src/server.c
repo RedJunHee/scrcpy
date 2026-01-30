@@ -467,19 +467,26 @@ end:
 static bool
 connect_and_read_byte(struct sc_intr *intr, sc_socket socket,
                       uint32_t tunnel_host, uint16_t tunnel_port) {
+    // First connect the TCP socket through the adb tunnel.
     bool ok = net_connect_intr(intr, socket, tunnel_host, tunnel_port);
     if (!ok) {
+        LOGD("TCP tunnel connect failed (host=%" PRIu32 ", port=%" PRIu16 ")",
+             tunnel_host, tunnel_port);
         return false;
     }
 
     char byte;
     // the connection may succeed even if the server behind the "adb tunnel"
     // is not listening, so read one byte to detect a working connection
-    if (net_recv_intr(intr, socket, &byte, 1) != 1) {
+    ssize_t r = net_recv_intr(intr, socket, &byte, 1);
+    if (r != 1) {
         // the server is not listening yet behind the adb tunnel
+        LOGD("TCP tunnel probe read failed (read=%zd)", r);
         return false;
     }
 
+    // Probe read succeeded, the TCP tunnel is alive.
+    LOGD("TCP tunnel probe read succeeded");
     return true;
 }
 
