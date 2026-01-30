@@ -126,4 +126,13 @@ sc_adb_get_device_ip(struct sc_intr *intr, const char *serial, unsigned flags);
 uint16_t
 sc_adb_get_device_sdk_version(struct sc_intr *intr, const char *serial);
 
+/**
+ * Check whether a localabstract socket exists on the device.
+ *
+ * This uses "adb shell cat /proc/net/unix" and searches for "@<socket_name>".
+ */
+bool
+sc_adb_has_localabstract(struct sc_intr *intr, const char *serial,
+                         const char *socket_name, unsigned flags);
+
 #endif

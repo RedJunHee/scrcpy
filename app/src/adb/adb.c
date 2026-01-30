@@ -790,3 +790,44 @@ sc_adb_get_device_sdk_version(struct sc_intr *intr, const char *serial) {
 
     return value;
 }
+
+bool
+sc_adb_has_localabstract(struct sc_intr *intr, const char *serial,
+                         const char *socket_name, unsigned flags) {
+    assert(serial);
+    assert(socket_name);
+
+    // adb shell로 /proc/net/unix를 확인해 서버 소켓이 열렸는지 점검한다.
+    const char *const argv[] =
+        SC_ADB_COMMAND("-s", serial, "shell", "cat", "/proc/net/unix");
+
+    sc_pipe pout;
+    sc_pid pid = sc_adb_execute_p(argv, flags, &pout);
+    if (pid == SC_PROCESS_NONE) {
+        LOGD("Could not execute \"adb shell cat /proc/net/unix\"");
+        return false;
+    }
+
+    char buf[16384];
+    ssize_t r = sc_pipe_read_all_intr(intr, pid, pout, buf, sizeof(buf) - 1);
+    sc_pipe_close(pout);
+
+    bool ok = process_check_success_intr(intr, pid,
+                                         "adb shell cat /proc/net/unix",
+                                         flags);
+    if (!ok || r == -1) {
+        return false;
+    }
+
+    assert((size_t) r < sizeof(buf));
+    buf[r] = '\0';
+
+    char needle[128];
+    int len = snprintf(needle, sizeof(needle), "@%s", socket_name);
+    if (len < 0 || (size_t) len >= sizeof(needle)) {
+        LOGW("Socket name too long for probe");
+        return false;
+    }
+
+    return strstr(buf, needle) != NULL;
+}
