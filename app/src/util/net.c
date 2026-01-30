@@ -1,6 +1,7 @@
 #include "net.h"
 
 #include <assert.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -117,6 +118,19 @@ net_perror(const char *s) {
 #endif
 }
 
+static const char *
+net_ipv4_to_string(uint32_t addr, char *buf, size_t len) {
+    // inet_ntop() expects the IPv4 address in network byte order.
+    struct in_addr in_addr;
+    in_addr.s_addr = htonl(addr);
+
+    if (!inet_ntop(AF_INET, &in_addr, buf, len)) {
+        return "unknown";
+    }
+
+    return buf;
+}
+
 sc_socket
 net_socket(void) {
 #ifdef HAVE_SOCK_CLOEXEC
@@ -140,16 +154,24 @@ bool
 net_connect(sc_socket socket, uint32_t addr, uint16_t port) {
     sc_raw_socket raw_sock = unwrap(socket);
 
+    char addr_str[INET_ADDRSTRLEN];
+    const char *addr_text = net_ipv4_to_string(addr, addr_str,
+                                               sizeof(addr_str));
+    // TCP socket connection attempt (detailed logs for diagnostics).
+    LOGD("TCP connect start: %s:%" PRIu16, addr_text, port);
+
     SOCKADDR_IN sin;
     sin.sin_family = AF_INET;
     sin.sin_addr.s_addr = htonl(addr);
     sin.sin_port = htons(port);
 
     if (connect(raw_sock, (SOCKADDR *) &sin, sizeof(sin)) == SOCKET_ERROR) {
+        LOGE("TCP connect failed: %s:%" PRIu16, addr_text, port);
         net_perror("connect");
         return false;
     }
 
+    LOGD("TCP connect success: %s:%" PRIu16, addr_text, port);
     return true;
 }
 
@@ -199,6 +221,19 @@ net_accept(sc_socket server_socket) {
         return SC_SOCKET_NONE;
     }
 #endif
+
+    if (raw_sock == SC_RAW_SOCKET_NONE) {
+        net_perror("accept");
+    } else {
+        char addr_str[INET_ADDRSTRLEN];
+        const char *addr_text = inet_ntop(AF_INET, &csin.sin_addr, addr_str,
+                                          sizeof(addr_str))
+                                    ? addr_str
+                                    : "unknown";
+        // TCP socket accepted (remote peer details).
+        LOGD("TCP accept success: %s:%" PRIu16, addr_text,
+             ntohs(csin.sin_port));
+    }
 
     return wrap(raw_sock);
 }
@@ -273,6 +308,7 @@ net_set_tcp_nodelay(sc_socket socket, bool tcp_nodelay) {
     sc_raw_socket raw_sock = unwrap(socket);
 
     int value = tcp_nodelay ? 1 : 0;
+    // TCP_NODELAY controls Nagle's algorithm, log for diagnostics.
     int ret = setsockopt(raw_sock, IPPROTO_TCP, TCP_NODELAY,
                          (const void *) &value, sizeof(value));
     if (ret == -1) {
@@ -281,6 +317,7 @@ net_set_tcp_nodelay(sc_socket socket, bool tcp_nodelay) {
     }
 
     assert(ret == 0);
+    LOGD("TCP_NODELAY %s", tcp_nodelay ? "enabled" : "disabled");
     return true;
 }
 
