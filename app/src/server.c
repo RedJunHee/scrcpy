@@ -523,6 +523,60 @@ connect_to_server(struct sc_server *server, unsigned attempts, sc_tick delay,
     return SC_SOCKET_NONE;
 }
 
+static bool
+wait_for_device_socket(struct sc_server *server, const char *serial,
+                       const char *socket_name, bool present_before_start,
+                       unsigned attempts, sc_tick delay) {
+    // adb forward를 사용하는 경우, 디바이스 소켓이 아직 열리기 전에
+    // 클라이언트가 TCP 연결을 시도하면 즉시 실패할 수 있다.
+    // adb shell로 소켓 생성을 확인해 연결 준비를 기다린다.
+    // 이미 같은 이름의 소켓이 존재하면, 이전 세션의 소켓일 가능성이 있어
+    // "없어졌다가 다시 생성되는지"를 관찰해 신뢰도를 높인다.
+    bool seen_absent = !present_before_start;
+    bool present = sc_adb_has_localabstract(&server->intr, serial,
+                                            socket_name, 0);
+    if (present) {
+        if (seen_absent) {
+            return true;
+        }
+    } else {
+        seen_absent = true;
+    }
+
+    if (present_before_start) {
+        LOGW("Device socket already existed before server start");
+    }
+
+    if (present && seen_absent) {
+        return true;
+    }
+
+    LOGI("Waiting for device socket to be ready...");
+    do {
+        sc_tick deadline = sc_tick_now() + delay;
+        if (!sc_server_sleep(server, deadline)) {
+            LOGI("Device socket waiting interrupted");
+            return false;
+        }
+
+        present = sc_adb_has_localabstract(&server->intr, serial,
+                                           socket_name, 0);
+        if (present) {
+            if (seen_absent) {
+                return true;
+            }
+        } else {
+            seen_absent = true;
+        }
+
+        if (present && seen_absent) {
+            return true;
+        }
+    } while (--attempts);
+
+    return false;
+}
+
 bool
 sc_server_init(struct sc_server *server, const struct sc_server_params *params,
               const struct sc_server_callbacks *cbs, void *cbs_userdata) {
@@ -1064,6 +1118,7 @@ run_server(void *data) {
     assert(r == sizeof(SC_SOCKET_NAME_PREFIX) - 1 + 8);
     assert(server->device_socket_name);
 
+    // 소켓 이름에 scid를 포함해 세션 충돌을 줄인다.
     ok = sc_adb_tunnel_open(&server->tunnel, &server->intr, serial,
                             server->device_socket_name, params->port_range,
                             params->force_adb_forward);
@@ -1090,6 +1145,26 @@ run_server(void *data) {
         sc_adb_tunnel_close(&server->tunnel, &server->intr, serial,
                             server->device_socket_name);
         goto error_connection_failed;
+    }
+
+    if (server->tunnel.forward) {
+        unsigned attempts = 40;
+        sc_tick delay = SC_TICK_FROM_MS(100);
+        // 실행 직전 이미 소켓이 있었는지 확인해 신뢰도를 높인다.
+        bool present_before_start =
+            sc_adb_has_localabstract(&server->intr, serial,
+                                     server->device_socket_name, 0);
+        bool ready =
+            wait_for_device_socket(server, serial, server->device_socket_name,
+                                   present_before_start, attempts, delay);
+        if (!ready) {
+            LOGE("Device socket did not become ready in time");
+            sc_process_terminate(pid);
+            sc_process_wait(pid, true); // ignore exit code
+            sc_process_observer_join(&observer);
+            sc_process_observer_destroy(&observer);
+            goto error_connection_failed;
+        }
     }
 
     ok = sc_server_connect_to(server, &server->info);
