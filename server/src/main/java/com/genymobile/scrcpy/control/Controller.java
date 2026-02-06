@@ -5,7 +5,8 @@ import com.genymobile.scrcpy.Options;
 import com.genymobile.scrcpy.device.Device;
 import com.genymobile.scrcpy.util.InjectResult;
 import com.genymobile.scrcpy.util.Ln;
-
+import com.genymobile.scrcpy.framex.FramexRegisterService;
+import com.genymobile.scrcpy.framex.FramexRegisterService.RegisterResult;
 import android.os.SystemClock;
 import android.util.Base64;
 import android.view.InputDevice;
@@ -39,6 +40,7 @@ public class Controller implements AsyncProcessor {
         this.displayId = options.getDisplayId();
         this.controlChannel = controlChannel;
         this.powerOn = options.getPowerOn();
+        this.framexRegisterService = new FramexRegisterService();
         initPointers();
 
         supportsInputEvents = Device.supportsInputEvents(displayId);
@@ -219,7 +221,22 @@ public class Controller implements AsyncProcessor {
         // 전달된 문자열은 민감 정보일 수 있으므로 길이만 로그로 남긴다.
         Ln.i("CONNECT 요청 수신: accountIdLen=" + accountId.length() + ", licenseKeyOrIdLen=" + licenseKeyOrId.length()
                 + ", machineIdLen=" + machineId.length());
-        // 등록 API 호출은 제거되었으므로, 현재는 요청 유효성 검증만 수행하고 연결을 완료한다.
+        // Android ID를 조회해 FrameX 등록 API에 전달한다.
+        String androidUuid = Device.getAndroidUuid();
+        if (androidUuid == null || androidUuid.isEmpty()) {
+            Ln.w("CONNECT 실패: androidUuid 조회 실패");
+            sendError("CONNECT_FAILED");
+            return;
+        }
+
+        RegisterResult registerResult = framexRegisterService.register(licenseKeyOrId, machineId, androidUuid);
+        if (!registerResult.isOk()) {
+            Ln.w("CONNECT 실패: framex register 실패, reason=" + registerResult.getReason());
+            sendError("CONNECT_FAILED");
+            return;
+        }
+
+
         sendOk("CONNECTED");
     }
 
