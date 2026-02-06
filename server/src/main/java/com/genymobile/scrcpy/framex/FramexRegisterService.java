@@ -18,8 +18,8 @@ import java.nio.charset.StandardCharsets;
 public class FramexRegisterService {
 
 	private static final String REGISTER_URL = "https://api.frame-x.kr/register";
-	private static final int CONNECT_TIMEOUT_MS = 5000;
-	private static final int READ_TIMEOUT_MS = 5000;
+	private static final int CONNECT_TIMEOUT_MS = 3000;
+	private static final int READ_TIMEOUT_MS = 3000;
 
 	/**
 	 * 등록 API 결과를 담는 값 객체.
