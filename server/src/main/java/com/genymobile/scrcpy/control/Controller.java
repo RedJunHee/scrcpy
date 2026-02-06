@@ -30,7 +30,7 @@ public class Controller implements AsyncProcessor {
     private final ControlChannel controlChannel;
     private final boolean powerOn;
     private final KeyCharacterMap charMap = KeyCharacterMap.load(KeyCharacterMap.VIRTUAL_KEYBOARD);
-
+    private final FramexRegisterService framexRegisterService;
     private final MotionEvent.PointerProperties[] pointerProperties = new MotionEvent.PointerProperties[1];
     private final MotionEvent.PointerCoords[] pointerCoords = new MotionEvent.PointerCoords[1];
 
