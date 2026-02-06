@@ -232,7 +232,7 @@ public class Controller implements AsyncProcessor {
         RegisterResult registerResult = framexRegisterService.register(licenseKeyOrId, machineId, androidUuid);
         if (!registerResult.isOk()) {
             Ln.w("CONNECT 실패: framex register 실패, reason=" + registerResult.getReason());
-            sendError("CONNECT_FAILED");
+            sendError("CONNECT_FAILED" +  registerResult.getReason());
             return;
         }
 
