@@ -339,17 +339,34 @@ public class Controller implements AsyncProcessor {
         Integer x2 = parseInt(tokenizer.nextToken());
         Integer y2 = parseInt(tokenizer.nextToken());
         Integer durationMs = parseInt(tokenizer.nextToken());
+        int holdAfterMs = 0;
         if (x1 == null || y1 == null || x2 == null || y2 == null || durationMs == null) {
             sendError("INVALID_ARGS");
             return;
         }
 
+        // DRAG는 "도착 지점에서 잠시 누르고 있기" 동작을 위해 holdAfterMs를 선택 인수로 받는다.
+        // SWIPE는 기존 동작 유지(추가 인수 미허용)로 프로토콜 결합도를 낮춘다.
         if (tokenizer.hasMoreTokens()) {
-            sendError("INVALID_ARGS");
-            return;
+            if (!isDrag) {
+                sendError("INVALID_ARGS");
+                return;
+            }
+
+            Integer parsedHoldAfterMs = parseInt(tokenizer.nextToken());
+            if (parsedHoldAfterMs == null) {
+                sendError("INVALID_ARGS");
+                return;
+            }
+            holdAfterMs = parsedHoldAfterMs.intValue();
+
+            if (tokenizer.hasMoreTokens()) {
+                sendError("INVALID_ARGS");
+                return;
+            }
         }
 
-        InjectResult result = injectSwipe(x1.intValue(), y1.intValue(), x2.intValue(), y2.intValue(), durationMs.intValue());
+        InjectResult result = injectSwipe(x1.intValue(), y1.intValue(), x2.intValue(), y2.intValue(), durationMs.intValue(), holdAfterMs);
         String commandLabel = isDrag ? "DRAG" : "SWIPE";
         // 이동 경로 정보는 응답에 포함하지 않는다.
         respondInjectResult(commandLabel, null, result);
@@ -473,7 +490,7 @@ public class Controller implements AsyncProcessor {
         return injectTouchEvent(downTime, upTime, MotionEvent.ACTION_UP, x, y, pressure, buttons);
     }
 
-    private InjectResult injectSwipe(int x1, int y1, int x2, int y2, int durationMs) {
+    private InjectResult injectSwipe(int x1, int y1, int x2, int y2, int durationMs, int holdAfterMs) {
         long downTime = SystemClock.uptimeMillis();
         InjectResult downResult = injectTouchEvent(downTime, downTime, MotionEvent.ACTION_DOWN, x1, y1, 1.0f, 0);
         if (!downResult.isOk()) {
@@ -495,6 +512,17 @@ public class Controller implements AsyncProcessor {
                 }
                 SystemClock.sleep(stepDuration);
             }
+        }
+
+        int safeHoldAfterMs = Math.max(0, holdAfterMs);
+        if (safeHoldAfterMs > 0) {
+            // 도착 좌표에서 MOVE 이벤트를 1회 더 주입해 "손가락 유지" 상태를 명확히 전달한다.
+            long holdEventTime = SystemClock.uptimeMillis();
+            InjectResult holdResult = injectTouchEvent(downTime, holdEventTime, MotionEvent.ACTION_MOVE, x2, y2, 1.0f, 0);
+            if (!holdResult.isOk()) {
+                return holdResult;
+            }
+            SystemClock.sleep(safeHoldAfterMs);
         }
 
         long upTime = SystemClock.uptimeMillis();
