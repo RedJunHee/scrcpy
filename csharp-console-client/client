@@ -46,7 +46,7 @@ namespace ScrcpyConsoleControl
 
                     Console.WriteLine("Commands:");
                     Console.WriteLine("  tap x y");
-                    Console.WriteLine("  drag x1 y1 x2 y2 durationMs steps");
+                    Console.WriteLine("  drag x1 y1 x2 y2 durationMs [holdAfterMs]");
                     Console.WriteLine("  setclip text...");
                     Console.WriteLine("  pasteclip text...");
                     Console.WriteLine("  getclip");
@@ -110,7 +110,7 @@ namespace ScrcpyConsoleControl
                 {
                     if (parts.Count < 6)
                     {
-                        Console.WriteLine("usage: drag x1 y1 x2 y2 durationMs steps");
+                        Console.WriteLine("usage: drag x1 y1 x2 y2 durationMs [holdAfterMs]");
                         continue;
                     }
 
@@ -119,9 +119,21 @@ namespace ScrcpyConsoleControl
                     int x2 = int.Parse(parts[3]);
                     int y2 = int.Parse(parts[4]);
                     int durationMs = int.Parse(parts[5]);
+                    int holdAfterMs = 0;
 
-                    // steps 인수는 서버 프로토콜에 존재하지 않아 무시한다.
-                    SendDrag(writer, x1, y1, x2, y2, durationMs);
+                    if (parts.Count >= 7)
+                    {
+                        holdAfterMs = int.Parse(parts[6]);
+                    }
+
+                    if (parts.Count >= 8)
+                    {
+                        Console.WriteLine("usage: drag x1 y1 x2 y2 durationMs [holdAfterMs]");
+                        continue;
+                    }
+
+                    // holdAfterMs는 드래그 도착 좌표에서 누름 상태를 유지할 시간(ms)이다.
+                    SendDrag(writer, x1, y1, x2, y2, durationMs, holdAfterMs);
                     ReadAndPrintResponse(reader, "drag");
                     continue;
                 }
@@ -190,10 +202,18 @@ namespace ScrcpyConsoleControl
             writer.WriteLine(string.Format("{0} {1} {2}", CommandTap, x, y));
         }
 
-        private static void SendDrag(StreamWriter writer, int x1, int y1, int x2, int y2, int durationMs)
+        private static void SendDrag(StreamWriter writer, int x1, int y1, int x2, int y2, int durationMs, int holdAfterMs)
         {
-            // 서버 컨트롤 프로토콜: "DRAG x1 y1 x2 y2 durationMs"
-            writer.WriteLine(string.Format("{0} {1} {2} {3} {4} {5}", CommandDrag, x1, y1, x2, y2, durationMs));
+            // 서버 컨트롤 프로토콜:
+            // - 기존: "DRAG x1 y1 x2 y2 durationMs"
+            // - 확장: "DRAG x1 y1 x2 y2 durationMs holdAfterMs"
+            if (holdAfterMs <= 0)
+            {
+                writer.WriteLine(string.Format("{0} {1} {2} {3} {4} {5}", CommandDrag, x1, y1, x2, y2, durationMs));
+                return;
+            }
+
+            writer.WriteLine(string.Format("{0} {1} {2} {3} {4} {5} {6}", CommandDrag, x1, y1, x2, y2, durationMs, holdAfterMs));
         }
 
         private static void SendClipboardGet(StreamWriter writer)
