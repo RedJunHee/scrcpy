@@ -341,6 +341,9 @@ public class Controller implements AsyncProcessor {
         Integer durationMs = parseInt(tokenizer.nextToken());
         int holdAfterMs = 0;
         if (x1 == null || y1 == null || x2 == null || y2 == null || durationMs == null) {
+            // FrameX 호출부에서 특수 공백/제어 문자가 섞여 들어오는 케이스를 추적하기 위해
+            // 실패 시 원본 인수 길이만 로그로 남긴다(민감 데이터 노출 방지).
+            Ln.w("SWIPE/DRAG 인수 파싱 실패: argsLength=" + arguments.length() + ", tokenCount=" + tokenizer.countTokens());
             sendError("INVALID_ARGS");
             return;
         }
@@ -643,11 +646,49 @@ public class Controller implements AsyncProcessor {
     }
 
     private Integer parseInt(String token) {
+        if (token == null) {
+            return null;
+        }
+
+        // 일부 호출 경로에서 숫자 토큰 양 끝에 제어 문자/공백이 섞여 들어올 수 있다.
+        // (예: "20000\u0000"), 이 경우에도 가능한 한 파싱해 프로토콜 결합도를 낮춘다.
+        String normalized = normalizeNumericToken(token);
+        if (normalized.length() == 0) {
+            return null;
+        }
+
         try {
-            return Integer.valueOf(Integer.parseInt(token));
+            return Integer.valueOf(Integer.parseInt(normalized));
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    private String normalizeNumericToken(String token) {
+        int start = 0;
+        int end = token.length();
+
+        while (start < end) {
+            char c = token.charAt(start);
+            if (!Character.isWhitespace(c) && !Character.isISOControl(c)) {
+                break;
+            }
+            start++;
+        }
+
+        while (end > start) {
+            char c = token.charAt(end - 1);
+            if (!Character.isWhitespace(c) && !Character.isISOControl(c)) {
+                break;
+            }
+            end--;
+        }
+
+        if (start == 0 && end == token.length()) {
+            return token;
+        }
+
+        return token.substring(start, end);
     }
 
     private Float parseFloat(String token) {
